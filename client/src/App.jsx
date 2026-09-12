@@ -10,6 +10,7 @@ import {
   loadStatus,
   importPlaylist,
   parseLrc,
+  postPresence,
   prefetch,
   searchCatalog,
   streamUrl,
@@ -23,6 +24,7 @@ import {
   ClockIcon,
   CloseIcon,
   GearIcon,
+  CopyIcon,
   HeartIcon,
   HomeIcon,
   ImportIcon,
@@ -48,6 +50,30 @@ const LS_RECENT = "mc-recent";
 const LS_VOL = "mc-vol";
 const LS_THEME = "mc-theme";
 const LS_PLAYLISTS = "mc-playlists";
+const LS_PRESENCE = "mc-presence";
+const LS_PRESENCE_KEY = "mc-presence-key";
+
+/**
+ * Opaque per-browser key. It is a capability: whoever holds it can read what this
+ * browser is playing, so it is random and regenerable rather than derived from
+ * anything identifying.
+ */
+function makePresenceKey() {
+  const bytes = new Uint8Array(18);
+  (window.crypto || {}).getRandomValues?.(bytes);
+  let s = "";
+  for (const b of bytes) s += b.toString(36).padStart(2, "0");
+  return s.slice(0, 32) || Math.random().toString(36).slice(2).padEnd(16, "x");
+}
+
+function readPresenceKey() {
+  let k = localStorage.getItem(LS_PRESENCE_KEY);
+  if (!k || !/^[A-Za-z0-9_-]{12,64}$/.test(k)) {
+    k = makePresenceKey();
+    localStorage.setItem(LS_PRESENCE_KEY, k);
+  }
+  return k;
+}
 
 export const APP_NAME = "Lahsunn Player";
 export const APP_AUTHOR = "Rajeev";
@@ -141,6 +167,8 @@ export default function App() {
   const [openList, setOpenList] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState(null);
+  const [presenceOn, setPresenceOn] = useState(() => localStorage.getItem(LS_PRESENCE) === "1");
+  const [presenceKey, setPresenceKey] = useState(readPresenceKey);
   const [panel, setPanel] = useState(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [lyrics, setLyrics] = useState(null);
@@ -231,6 +259,51 @@ export default function App() {
       });
     }
   }, [status]);
+
+  /* --- Discord presence ------------------------------------------------ *
+   * Push what is playing to the server so the companion script (which runs on
+   * the same machine as Discord) can relay it. Cosmetic only.
+   * -------------------------------------------------------------------- */
+
+  useEffect(() => {
+    localStorage.setItem(LS_PRESENCE, presenceOn ? "1" : "0");
+  }, [presenceOn]);
+
+  // Keep the latest values in a ref so the heartbeat does not resubscribe
+  // every second as the position changes.
+  const presenceRef = useRef({});
+  presenceRef.current = { current, playing, currentTime, duration };
+
+  useEffect(() => {
+    if (!presenceOn) return undefined;
+
+    const send = () => {
+      const { current: t, playing: p, currentTime: pos, duration: dur } = presenceRef.current;
+      if (!t) return;
+      postPresence({
+        key: presenceKey,
+        playing: !!p,
+        title: t.title,
+        author: t.author,
+        album: t.album || "",
+        artwork: t.artwork || null,
+        url: t.uri || null,
+        duration: Math.round(dur || (t.duration || 0) / 1000),
+        position: Math.round(pos || 0),
+      });
+    };
+
+    send();
+    // The server treats a mailbox older than ~45s as dead, so refresh well inside that.
+    const id = setInterval(send, 15000);
+    return () => clearInterval(id);
+  }, [presenceOn, presenceKey, current && trackKey(current), playing]);
+
+  const regeneratePresenceKey = useCallback(() => {
+    const k = makePresenceKey();
+    localStorage.setItem(LS_PRESENCE_KEY, k);
+    setPresenceKey(k);
+  }, []);
 
   const dismissNotice = useCallback(() => setNoticeHidden(true), []);
   const retryNotice = useCallback(() => {
@@ -368,6 +441,7 @@ export default function App() {
     if (audio.src !== new URL(url, window.location.href).href) {
       audio.src = url;
       setBuffering(true);
+      streamRetry.current = 0; // retries are per track, not per session
     }
     audio.volume = muted ? 0 : volume;
     const p = audio.play();
@@ -479,13 +553,53 @@ export default function App() {
 
   const onEnded = () => {
     if (repeat === "one") {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play();
+      const a = audioRef.current;
+      if (a) {
+        a.currentTime = 0;
+        a.play().catch(() => setPlaying(false));
+      }
       return;
     }
     if (index < queue.length - 1 || repeat === "all") skip(1);
     else setPlaying(false);
   };
+
+  /**
+   * A track that will not load must not kill the session.
+   *
+   * Previously the retry counter was global and never reset, so after three
+   * failures anywhere the handler returned silently forever: playback appeared
+   * to just stop with no message and no way to recover without a reload.
+   * Retries are now per track, and once they are spent we say so and move on.
+   */
+  const onStreamError = useCallback(() => {
+    setBuffering(false);
+    const audio = audioRef.current;
+    if (!audio || !current) return;
+
+    if (streamRetry.current < 2) {
+      streamRetry.current += 1;
+      audio.src = `${streamUrl(current)}&retry=${streamRetry.current}&t=${Date.now()}`;
+      audio.load();
+      audio.play().catch(() => {});
+      return;
+    }
+
+    const failed = current;
+    const more = index < queue.length - 1;
+    setNotice({
+      kind: "err",
+      text: `Could not play “${failed.title}”${failed.author ? ` by ${failed.author}` : ""}.`,
+      hints: more
+        ? ["Skipped to the next track.", "Run npm run doctor if this keeps happening."]
+        : [
+            "Check that yt-dlp is installed on the server (see Settings).",
+            "If the UI and API are on different hosts, CORS_ORIGIN must allow this origin.",
+          ],
+    });
+    if (more) skip(1);
+    else setPlaying(false);
+  }, [current, index, queue.length, skip]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -755,14 +869,7 @@ export default function App() {
           setPlaying(true);
         }}
         onEnded={onEnded}
-        onError={() => {
-          setBuffering(false);
-          const audio = audioRef.current;
-          if (!audio || !current || streamRetry.current >= 3) return;
-          streamRetry.current += 1;
-          audio.src = `${streamUrl(current)}&retry=${streamRetry.current}&t=${Date.now()}`;
-          audio.play().catch(() => setPlaying(false));
-        }}
+        onError={onStreamError}
       />
 
       <aside className="sidebar">
@@ -945,6 +1052,10 @@ export default function App() {
               setTheme={setTheme}
               status={status}
               onRefresh={() => refreshStatus(true)}
+              presenceOn={presenceOn}
+              setPresenceOn={setPresenceOn}
+              presenceKey={presenceKey}
+              onRegenerateKey={regeneratePresenceKey}
             />
           )}
         </div>
@@ -1647,7 +1758,85 @@ function shuffleCopy(list) {
   return a;
 }
 
-function Settings({ theme, setTheme, status, onRefresh }) {
+function DiscordPresenceRow({ on, setOn, presenceKey, onRegenerate }) {
+  const [copied, setCopied] = useState("");
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://your-app";
+  const command = `node tools/discord-presence.mjs --url ${origin} --key ${presenceKey} --client-id <YOUR_APP_ID>`;
+
+  const copy = (text, what) => {
+    const done = () => {
+      setCopied(what);
+      setTimeout(() => setCopied(""), 1600);
+    };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, () => {});
+    else done();
+  };
+
+  return (
+    <div className="row presence-row">
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600 }}>Discord presence</div>
+        <div style={{ color: "var(--muted-foreground)", fontSize: 13, marginTop: 4, lineHeight: 1.55 }}>
+          Shows what you are listening to on your Discord profile.
+          <br />
+          Discord only accepts Rich Presence from a program on your own computer, so a
+          browser cannot do it alone. Enable this, then run the small companion
+          script from this repo on the PC where Discord is open.
+        </div>
+
+        {on && (
+          <div className="presence-setup">
+            <div className="presence-field">
+              <span className="presence-label">Your key</span>
+              <code>{presenceKey}</code>
+              <button className="icon-btn" title="Copy key" onClick={() => copy(presenceKey, "key")}>
+                <CopyIcon size={15} />
+              </button>
+              <button className="icon-btn" title="Generate a new key" onClick={onRegenerate}>
+                <RefreshIcon size={15} />
+              </button>
+            </div>
+            <div className="presence-field">
+              <span className="presence-label">Command</span>
+              <code className="presence-cmd">{command}</code>
+              <button className="icon-btn" title="Copy command" onClick={() => copy(command, "cmd")}>
+                <CopyIcon size={15} />
+              </button>
+            </div>
+            <div className="presence-note">
+              Create an application at{" "}
+              <a
+                className="credit-link"
+                href="https://discord.com/developers/applications"
+                target="_blank"
+                rel="noreferrer"
+              >
+                discord.com/developers/applications
+              </a>{" "}
+              and use its Application ID. The application name is what Discord displays.
+              {copied && <strong> · {copied === "key" ? "Key" : "Command"} copied</strong>}
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="pill">
+        <button className={on ? "on" : ""} onClick={() => setOn(true)}>On</button>
+        <button className={!on ? "on" : ""} onClick={() => setOn(false)}>Off</button>
+      </div>
+    </div>
+  );
+}
+
+function Settings({
+  theme,
+  setTheme,
+  status,
+  onRefresh,
+  presenceOn,
+  setPresenceOn,
+  presenceKey,
+  onRegenerateKey,
+}) {
   const node = status?.node;
   const audio = status?.audio;
   const dot = (ok) => ({
@@ -1715,6 +1904,12 @@ function Settings({ theme, setTheme, status, onRefresh }) {
             </div>
           </div>
         </div>
+        <DiscordPresenceRow
+          on={presenceOn}
+          setOn={setPresenceOn}
+          presenceKey={presenceKey}
+          onRegenerate={onRegenerateKey}
+        />
         <div className="row">
           <div>
             <div style={{ fontWeight: 600 }}>Lyrics</div>

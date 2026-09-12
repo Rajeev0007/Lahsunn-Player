@@ -1032,6 +1032,66 @@ async function importPlaylist(raw) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Discord presence relay
+ *
+ * A website cannot set your Discord presence. Rich Presence is delivered over a
+ * local IPC socket that the Discord desktop app opens on your own machine, which
+ * a browser cannot touch, and neither can this server — it is not your machine.
+ * (The only other route is driving a user token over the gateway, which is
+ * self-botting and against Discord's ToS, so it is deliberately not implemented.)
+ *
+ * So this endpoint is just a mailbox. The browser posts what it is playing under
+ * an opaque key it generated, and the companion script in tools/ — running on the
+ * same computer as Discord — reads that key and pushes it to the local socket.
+ * ------------------------------------------------------------------ */
+
+const presenceBox = new Map(); // key -> { at, data }
+const PRESENCE_TTL = 90 * 1000;
+const PRESENCE_MAX_KEYS = 500;
+const PRESENCE_KEY_RE = /^[A-Za-z0-9_-]{12,64}$/;
+
+const clampText = (v, n) => {
+  const s = String(v ?? "").replace(/\s+/g, " ").trim();
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+};
+
+function prunePresence() {
+  const now = Date.now();
+  for (const [k, v] of presenceBox) if (now - v.at > PRESENCE_TTL) presenceBox.delete(k);
+  while (presenceBox.size > PRESENCE_MAX_KEYS) {
+    presenceBox.delete(presenceBox.keys().next().value);
+  }
+}
+
+function putPresence(key, body) {
+  const data = {
+    playing: !!body.playing,
+    title: clampText(body.title, 128),
+    author: clampText(body.author, 128),
+    album: clampText(body.album, 128),
+    artwork: typeof body.artwork === "string" && /^https?:\/\//i.test(body.artwork) ? body.artwork.slice(0, 500) : null,
+    // seconds
+    duration: Math.max(0, Math.min(24 * 3600, Number(body.duration) || 0)),
+    position: Math.max(0, Math.min(24 * 3600, Number(body.position) || 0)),
+    url: typeof body.url === "string" && /^https?:\/\//i.test(body.url) ? body.url.slice(0, 500) : null,
+  };
+  presenceBox.set(key, { at: Date.now(), data });
+  prunePresence();
+  return data;
+}
+
+function getPresence(key) {
+  const rec = presenceBox.get(key);
+  if (!rec) return null;
+  if (Date.now() - rec.at > PRESENCE_TTL) {
+    presenceBox.delete(key);
+    return null;
+  }
+  // Tell the companion how stale this is so it can clear a dead session.
+  return { ...rec.data, ageMs: Date.now() - rec.at };
+}
+
+/* ------------------------------------------------------------------ *
  * audio: resolve a YouTube video, then stream it
  * ------------------------------------------------------------------ */
 
@@ -1151,7 +1211,8 @@ function runYtdlp(videoId) {
   });
 }
 
-async function directAudioUrl(videoId) {
+async function directAudioUrl(videoId, { fresh = false } = {}) {
+  if (fresh) directUrlCache.delete(videoId);
   const hit = directUrlCache.get(videoId);
   if (hit && Date.now() - hit.at < 90 * 60 * 1000) return hit.url;
   if (!hasBin("yt-dlp")) throw new Error("yt-dlp is not installed on the server");
@@ -1363,12 +1424,20 @@ async function streamTrack(req, res, track) {
       }
     }
     if (STREAM_MODE !== "plugin") {
-      try {
-        const url = await directAudioUrl(id);
-        return await proxyAudio(req, res, url);
-      } catch (e) {
-        failures.push(`yt-dlp(${id}): ${e.message}`);
-        if (res.headersSent) return res.end();
+      // A googlevideo URL can expire before our TTL is up. A cached-but-dead URL
+      // used to poison the cache for the full 90 minutes, making the track
+      // unplayable; on failure we now discard it and re-resolve once.
+      for (const fresh of [false, true]) {
+        try {
+          const url = await directAudioUrl(id, { fresh });
+          return await proxyAudio(req, res, url);
+        } catch (e) {
+          failures.push(`yt-dlp(${id})${fresh ? " [retried]" : ""}: ${e.message}`);
+          if (res.headersSent) return res.end();
+          // Only a stale-URL failure is worth re-resolving for.
+          if (fresh || !directUrlCache.has(id)) break;
+          directUrlCache.delete(id);
+        }
       }
     }
   }
@@ -1662,6 +1731,20 @@ async function handleApi(req, res) {
       }
     }
     return json(res, 200, { genre: g, tracks });
+  }
+
+  if (p === "/api/presence") {
+    if (req.method === "POST") {
+      const body = await readBody(req);
+      const key = String(body.key || "");
+      if (!PRESENCE_KEY_RE.test(key)) return json(res, 400, { ok: false, error: "bad key" });
+      putPresence(key, body);
+      return json(res, 200, { ok: true });
+    }
+    const key = String(q.key || "");
+    if (!PRESENCE_KEY_RE.test(key)) return json(res, 400, { ok: false, error: "bad key" });
+    const data = getPresence(key);
+    return json(res, 200, { ok: true, present: !!data, activity: data, appName: "Lahsunn Player" });
   }
 
   if (p === "/api/import") {

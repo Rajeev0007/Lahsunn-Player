@@ -37,8 +37,46 @@ Open http://localhost:3000
 | `LAVALINK_AUTH` | The node's `Authorization` password |
 | `LAVALINK_SECURE` | `true` for HTTPS. Ignored if `LAVALINK_HOST` has a scheme |
 | `STREAM_MODE` | `auto` (default), `ytdlp`, or `plugin` |
+| `CORS_ORIGIN` | Only if the UI is on another host. Comma-separated origins, or `*` |
+| `VITE_API_BASE` | Build-time. Point the UI at a backend on another host |
 
 See `.env.example` for the optional yt-dlp settings.
+
+## Deploying
+
+> **This app cannot run on a serverless host such as Vercel, Netlify, or Cloudflare Pages.**
+> It needs a long-lived process that can spawn `yt-dlp` and stream audio. On a
+> static/serverless host the UI loads but every `/api/*` call 404s, so the page
+> shows zero songs.
+
+### Recommended: one container, everything works
+
+```bash
+docker build -t lahsunn-player .
+docker run -p 3000:3000 \
+  -e LAVALINK_HOST=your-node.example.com \
+  -e LAVALINK_PORT=443 \
+  -e LAVALINK_SECURE=true \
+  -e LAVALINK_AUTH=yourpassword \
+  lahsunn-player
+```
+
+The image installs `yt-dlp` and `ffmpeg` and serves the UI and API together.
+`render.yaml` is a ready-made blueprint for [Render](https://render.com); the same
+image works on Railway, Fly.io, Koyeb, or any VPS.
+
+### Alternative: UI on Vercel, backend elsewhere
+
+Only do this if you specifically want the UI on Vercel. You still need the
+container above running somewhere for the API.
+
+1. Deploy the container and note its URL, e.g. `https://api.example.com`.
+2. On that backend set `CORS_ORIGIN` to your Vercel URL:
+   `CORS_ORIGIN=https://your-app.vercel.app`
+3. In Vercel, set the build-time variable `VITE_API_BASE=https://api.example.com`.
+
+`vercel.json` pins the build command and output directory so Vercel does not
+apply its Vite preset (which expects `dist`, not `client/www`).
 
 ## Troubleshooting — "no songs are showing"
 

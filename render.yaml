@@ -1,0 +1,21 @@
+# Render blueprint — deploys the whole player (UI + API + yt-dlp) as a container.
+# Render dashboard -> New -> Blueprint -> point at this repo.
+services:
+  - type: web
+    name: lahsunn-player
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      # Set these in the Render dashboard; they are intentionally not committed.
+      - key: LAVALINK_HOST
+        sync: false
+      - key: LAVALINK_PORT
+        sync: false
+      - key: LAVALINK_AUTH
+        sync: false
+      - key: LAVALINK_SECURE
+        sync: false
+      - key: STREAM_MODE
+        value: ytdlp

@@ -1,0 +1,13 @@
+.git
+.gitignore
+node_modules
+client/www
+client/node_modules
+.env
+*.log
+README.md
+LICENSE
+Dockerfile
+.dockerignore
+vercel.json
+render.yaml

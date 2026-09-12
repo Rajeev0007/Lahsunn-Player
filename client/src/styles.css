@@ -19,7 +19,9 @@
   --accent: #a855f7;
   --accent-2: #7c3aed;
   --accent-3: #d8b4fe;
-  --accent-rgb: 168, 85, 247;
+  /* space-separated on purpose: it is consumed as rgb(var(--accent-rgb) / a),
+     and mixing comma syntax with slash alpha is invalid CSS that browsers drop */
+  --accent-rgb: 168 85 247;
   --accent-contrast: #14082a;
   --accent-grad: linear-gradient(135deg, #c084fc 0%, #a855f7 45%, #7c3aed 100%);
   --accent-soft: rgb(var(--accent-rgb) / 0.14);
@@ -63,7 +65,7 @@
   --accent: #7c3aed;
   --accent-2: #6d28d9;
   --accent-3: #9333ea;
-  --accent-rgb: 124, 58, 237;
+  --accent-rgb: 124 58 237;
   --accent-contrast: #ffffff;
   --accent-grad: linear-gradient(135deg, #a855f7 0%, #7c3aed 55%, #5b21b6 100%);
 

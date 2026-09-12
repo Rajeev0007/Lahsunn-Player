@@ -226,6 +226,37 @@ function json(res, status, obj) {
   send(res, status, obj, { "Content-Type": "application/json; charset=utf-8" });
 }
 
+/**
+ * Cross-origin support, off unless CORS_ORIGIN is set. Needed when the UI is
+ * hosted separately (e.g. on Vercel) from this server.
+ *   CORS_ORIGIN=https://my-ui.vercel.app       (or a comma-separated list, or *)
+ * Returns true if the request was a preflight and has already been answered.
+ */
+const CORS_ORIGIN = (process.env.CORS_ORIGIN || "").trim();
+const CORS_LIST = CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean);
+
+function applyCors(req, res) {
+  if (CORS_LIST.length) {
+    const origin = req.headers.origin;
+    const allow = CORS_LIST.includes("*") ? "*" : CORS_LIST.find((o) => o === origin);
+    if (allow) {
+      res.setHeader("Access-Control-Allow-Origin", allow);
+      if (allow !== "*") res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
+      // audio seeking needs these visible to the browser
+      res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
+      res.setHeader("Access-Control-Max-Age", "86400");
+    }
+  }
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return true;
+  }
+  return false;
+}
+
 function parseUrl(req) {
   return new URL(req.url, `http://${req.headers.host || "localhost"}`);
 }
@@ -1444,6 +1475,7 @@ const CHECK_MODE = process.argv.includes("--check") || process.argv.includes("--
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (applyCors(req, res)) return;
     if (req.url.startsWith("/api/")) await handleApi(req, res);
     else serveStatic(req, res);
   } catch (err) {

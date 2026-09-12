@@ -1,10 +1,80 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3 3" width="100%" height="100%"
-  shape-rendering="crispEdges" role="img">
-  <title>Monochrome icon</title>
-  <g fill="white">
-    <rect x="1" y="0" width="2" height="1" />
-    <rect x="2" y="1" width="1" height="1" />
-    <rect x="0" y="2" width="2" height="1" />
-    <rect x="0" y="1" width="1" height="1" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="100%" height="100%" role="img" aria-label="Lahsunn Player">
+  <title>Lahsunn Player</title>
+  <defs>
+    <linearGradient id="lp-fur" x1="0" y1="0" x2="0.2" y2="1">
+      <stop offset="0" stop-color="#c4a481" />
+      <stop offset="0.5" stop-color="#a1815f" />
+      <stop offset="1" stop-color="#7a5f45" />
+    </linearGradient>
+    <radialGradient id="lp-eye" cx="0.36" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#ffffff" />
+      <stop offset="0.7" stop-color="#f6f2fb" />
+      <stop offset="1" stop-color="#cec2de" />
+    </radialGradient>
+    <linearGradient id="lp-ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d8b4fe" />
+      <stop offset="0.5" stop-color="#a855f7" />
+      <stop offset="1" stop-color="#6d28d9" />
+    </linearGradient>
+    <radialGradient id="lp-bg" cx="0.5" cy="0.35" r="0.8">
+      <stop offset="0" stop-color="#f6f2fb" />
+      <stop offset="1" stop-color="#d9cfe8" />
+    </radialGradient>
+    <clipPath id="lp-clip"><circle cx="64" cy="64" r="60" /></clipPath>
+  </defs>
+
+  <circle cx="64" cy="64" r="60" fill="url(#lp-bg)" />
+
+  <g clip-path="url(#lp-clip)">
+    <!-- ears -->
+    <path d="M14 52 L26 4 L58 34 Z" fill="url(#lp-fur)" />
+    <path d="M22 44 L29 18 L47 34 Z" fill="#e59aa8" opacity="0.75" />
+    <path d="M114 52 L102 4 L70 34 Z" fill="url(#lp-fur)" />
+    <path d="M106 44 L99 18 L81 34 Z" fill="#e59aa8" opacity="0.75" />
+
+    <!-- head, cropped like a close-up photo -->
+    <ellipse cx="64" cy="80" rx="58" ry="56" fill="url(#lp-fur)" />
+
+    <!-- tabby markings -->
+    <path d="M64 26 q-7 16 -3 30 h6 q4 -14 -3 -30 Z" fill="#6b5138" opacity="0.5" />
+    <path d="M40 30 q-8 12 -6 24 l7 2 q0 -13 5 -24 Z" fill="#6b5138" opacity="0.42" />
+    <path d="M88 30 q8 12 6 24 l-7 2 q0 -13 -5 -24 Z" fill="#6b5138" opacity="0.42" />
+    <path d="M6 74 q16 4 26 12 l-2 7 q-14 -8 -26 -9 Z" fill="#6b5138" opacity="0.32" />
+    <path d="M122 74 q-16 4 -26 12 l2 7 q14 -8 26 -9 Z" fill="#6b5138" opacity="0.32" />
+
+    <!-- muzzle -->
+    <ellipse cx="64" cy="103" rx="30" ry="22" fill="#efe6dc" opacity="0.92" />
+
+    <!-- the googly eyes -->
+    <g>
+      <circle cx="90" cy="66" r="25" fill="url(#lp-eye)" stroke="#b9a9cc" stroke-width="1.2" />
+      <circle cx="38" cy="66" r="25" fill="url(#lp-eye)" stroke="#b9a9cc" stroke-width="1.2" />
+      <circle cx="90" cy="69" r="12.5" fill="#141018" />
+      <circle cx="38" cy="69" r="12.5" fill="#141018" />
+      <circle cx="86" cy="63" r="4.2" fill="#ffffff" opacity="0.9" />
+      <circle cx="34" cy="63" r="4.2" fill="#ffffff" opacity="0.9" />
+      <circle cx="94" cy="75" r="2" fill="#ffffff" opacity="0.45" />
+      <circle cx="42" cy="75" r="2" fill="#ffffff" opacity="0.45" />
+    </g>
+
+    <!-- nose -->
+    <path d="M64 92 q9 0 9 6 q0 6 -9 9 q-9 -3 -9 -9 q0 -6 9 -6 Z" fill="#d9808f" />
+    <path d="M60 95 q4 -2 8 0" stroke="#b3606f" stroke-width="1.2" fill="none" stroke-linecap="round" />
+
+    <!-- open mouth with two little fangs -->
+    <path d="M64 107 v4" stroke="#8d6f52" stroke-width="2" stroke-linecap="round" />
+    <path d="M52 111 q12 14 24 0 q-12 6 -24 0 Z" fill="#8f5560" />
+    <path d="M57 112 l3 7 l3 -7 Z" fill="#ffffff" />
+    <path d="M65 112 l3 7 l3 -7 Z" fill="#ffffff" />
+
+    <!-- whiskers -->
+    <g stroke="#f3ece2" stroke-width="1.6" stroke-linecap="round" opacity="0.85" fill="none">
+      <path d="M34 98 q-16 -3 -26 -8" />
+      <path d="M34 104 q-17 1 -28 2" />
+      <path d="M94 98 q16 -3 26 -8" />
+      <path d="M94 104 q17 1 28 2" />
+    </g>
   </g>
+
+  <circle cx="64" cy="64" r="59" fill="none" stroke="url(#lp-ring)" stroke-width="5" />
 </svg>

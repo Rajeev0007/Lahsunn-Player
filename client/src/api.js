@@ -27,6 +27,8 @@ export async function apiGet(path) {
 
 export const searchCatalog = (q) => apiGet(`/api/search?q=${encodeURIComponent(q)}`);
 export const browseHome = () => apiGet("/api/browse");
+/** Node reachability + which sources are usable, so a blank page can explain itself. */
+export const loadStatus = (refresh = false) => apiGet(`/api/status${refresh ? "?refresh=1" : ""}`);
 export const loadCollection = (url) => apiGet(`/api/collection?url=${encodeURIComponent(url)}`);
 export const loadGenres = () => apiGet("/api/genres");
 export const loadGenre = (id) => apiGet(`/api/genre?id=${encodeURIComponent(id)}`);

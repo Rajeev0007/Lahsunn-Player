@@ -148,3 +148,19 @@ export const ExpandIcon = (p) => (
     <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
   </Icon>
 );
+
+export const AlertIcon = (p) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7.5v5" />
+    <circle cx="12" cy="16.3" r="0.9" fill="currentColor" stroke="none" />
+  </Icon>
+);
+export const RefreshIcon = (p) => (
+  <Icon {...p}>
+    <path d="M20 11a8 8 0 0 0-13.7-5.3L3 9" />
+    <path d="M3 5v4h4" />
+    <path d="M4 13a8 8 0 0 0 13.7 5.3L21 15" />
+    <path d="M21 19v-4h-4" />
+  </Icon>
+);

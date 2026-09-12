@@ -122,6 +122,56 @@ The service worker never caches `/api/`, so playlists, search and the audio
 stream always come from the network — caching a partial range response would
 break seeking.
 
+## Discord presence
+
+Shows what you are listening to on your Discord profile.
+
+**Read this first:** a website cannot set your Discord presence on its own. Rich
+Presence is delivered over a local IPC socket that the Discord *desktop app*
+opens on your own computer. A browser tab cannot open that socket, and neither
+can this server — it is not your machine. Discord
+[declined to expose this to web apps](https://support.discord.com/hc/en-us/community/posts/360048067452-Allow-Rich-Presence-from-web-apps),
+because setting a status requires a live gateway connection authenticated with a
+user token, which OAuth2 does not grant. Driving a user token yourself is
+self-botting and breaks Discord's Terms of Service, so this project does not do it.
+
+So it works the same way every other "browser to Discord" integration does — a
+small companion program on your PC:
+
+1. Create an application at
+   [discord.com/developers/applications](https://discord.com/developers/applications)
+   and copy its **Application ID**. The application's *name* is what Discord
+   displays, so name it something like `Lahsunn Player`. Optionally upload an
+   image called `logo` under **Rich Presence → Art Assets** as a cover fallback.
+2. In the player open **Settings → Discord presence**, turn it **On**, and copy
+   the command shown there.
+3. On the computer where Discord is running, from a clone of this repo:
+
+   ```bash
+   node tools/discord-presence.mjs \
+     --url https://your-app.onrender.com \
+     --key <key from Settings> \
+     --client-id <your Application ID>
+   ```
+
+Leave it running. It shows the track, artist, album art and a live progress bar,
+and clears the presence when you stop the music or press Ctrl+C.
+
+How it works: the browser posts the current track to `/api/presence` under an
+opaque key it generated; the companion polls that key and pushes it to the local
+Discord socket. The key is a capability — anyone holding it can see what that
+browser is playing — so it is random, and **Regenerate** in Settings invalidates
+the old one. Nothing is stored for longer than 90 seconds and nothing is written
+to disk.
+
+The companion needs no dependencies, only Node 18+. It reconnects if Discord
+restarts, keeps running if the player is unreachable, and respects Discord's
+rate limit on presence updates.
+
+> Discord renders `Listening to <app name>` on most builds. Some older desktop
+> builds ignore the activity type and show `Playing` instead — that is a Discord
+> client limitation, not something the app can override.
+
 ## Troubleshooting — "no songs are showing"
 
 Run the built-in diagnostic:
@@ -170,6 +220,7 @@ client/public/logo.svg            brand mark
 client/public/sw.js               service worker (PWA install, offline shell)
 client/public/manifest.webmanifest
 client/vite.config.js
+tools/discord-presence.mjs        Discord Rich Presence companion (run on your PC)
 Dockerfile / render.yaml          container deploy with yt-dlp + ffmpeg
 .env.example                      all configuration, annotated
 ```

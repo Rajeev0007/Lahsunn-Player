@@ -48,6 +48,19 @@ export const loadStatus = (refresh = false) => apiGet(`/api/status${refresh ? "?
  * failed import) — check `ok`.
  */
 export const importPlaylist = (value) => apiGet(`/api/import?q=${encodeURIComponent(value)}`);
+
+/**
+ * Report what is playing so the Discord presence companion can pick it up.
+ * Fire-and-forget: presence is cosmetic and must never disturb playback.
+ */
+export function postPresence(payload) {
+  return fetch(api("/api/presence"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  }).catch(() => {});
+}
 export const loadCollection = (url) => apiGet(`/api/collection?url=${encodeURIComponent(url)}`);
 export const loadGenres = () => apiGet("/api/genres");
 export const loadGenre = (id) => apiGet(`/api/genre?id=${encodeURIComponent(id)}`);

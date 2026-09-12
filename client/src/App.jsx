@@ -7,6 +7,7 @@ import {
   loadCollection,
   loadGenre,
   loadGenreMeta,
+  loadStatus,
   parseLrc,
   prefetch,
   searchCatalog,
@@ -15,6 +16,7 @@ import {
 } from "./api.js";
 import { GENRES } from "./genres.js";
 import {
+  AlertIcon,
   BackIcon,
   BrowseIcon,
   ClockIcon,
@@ -30,6 +32,7 @@ import {
   PlayIcon,
   PrevIcon,
   QueueIcon,
+  RefreshIcon,
   RepeatIcon,
   SearchIcon,
   ShuffleIcon,
@@ -40,6 +43,20 @@ const LS_LIKED = "mc-liked";
 const LS_RECENT = "mc-recent";
 const LS_VOL = "mc-vol";
 const LS_THEME = "mc-theme";
+
+export const APP_NAME = "Lahsunn Player";
+export const APP_AUTHOR = "Rajeev";
+/** Swap this one line to use a different brand image from client/public. */
+const BRAND_LOGO = "/logo.svg";
+
+const THEMES = ["purple", "light"];
+/** Older builds stored "monochrome"/"white"; map them onto the new purple theme. */
+function readTheme() {
+  const raw = localStorage.getItem(LS_THEME);
+  if (raw === "white" || raw === "light") return "light";
+  if (THEMES.includes(raw)) return raw;
+  return "purple";
+}
 
 function loadJson(key, fallback) {
   try {
@@ -120,7 +137,10 @@ export default function App() {
   const [lyrics, setLyrics] = useState(null);
   const [lyricsStatus, setLyricsStatus] = useState("idle");
   const [ctxMenu, setCtxMenu] = useState(null);
-  const [theme, setTheme] = useState(() => localStorage.getItem(LS_THEME) || "monochrome");
+  const [theme, setTheme] = useState(readTheme);
+  const [status, setStatus] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [noticeHidden, setNoticeHidden] = useState(false);
   const [buffering, setBuffering] = useState(false);
   const [genres, setGenres] = useState([]);
   const [genresLoading, setGenresLoading] = useState(false);
@@ -147,11 +167,63 @@ export default function App() {
     if (audioRef.current) audioRef.current.volume = muted ? 0 : volume;
   }, [volume, muted]);
 
+  const refreshStatus = useCallback((force = false) => {
+    return loadStatus(force)
+      .then((s) => {
+        setStatus(s);
+        return s;
+      })
+      .catch(() => null);
+  }, []);
+
   useEffect(() => {
     browseHome()
-      .then(setBrowse)
-      .catch(() => setBrowse({ songs: [], albums: [], artists: [], picks: [] }));
-  }, []);
+      .then((b) => {
+        setBrowse(b);
+        if (b?.warning) setNotice({ kind: "err", text: b.warning });
+      })
+      .catch(() =>
+        setBrowse({
+          songs: [],
+          albums: [],
+          artists: [],
+          picks: [],
+          warning: "Could not reach the player's own API.",
+        })
+      );
+    refreshStatus();
+  }, [refreshStatus]);
+
+  // A blank page should always explain itself.
+  useEffect(() => {
+    if (!status) return;
+    if (!status.node?.ok) {
+      setNotice({
+        kind: "err",
+        text: status.node?.error || "Lavalink is not reachable.",
+        hints: status.hints || [],
+      });
+    } else if (status.audio && !status.audio.ytdlp && status.audio.mode !== "plugin") {
+      setNotice({
+        kind: "err",
+        text: "Connected to Lavalink, but yt-dlp is not installed on the server, so nothing can play.",
+        hints: ["Install yt-dlp on the server's PATH and restart."],
+      });
+    }
+  }, [status]);
+
+  const dismissNotice = useCallback(() => setNoticeHidden(true), []);
+  const retryNotice = useCallback(() => {
+    setNoticeHidden(false);
+    refreshStatus(true).then((s) => {
+      if (s?.node?.ok) {
+        setNotice(null);
+        browseHome()
+          .then(setBrowse)
+          .catch(() => {});
+      }
+    });
+  }, [refreshStatus]);
 
   useEffect(() => {
     if (view === "browse" || view === "genre") return undefined;
@@ -167,8 +239,19 @@ export default function App() {
         .then((r) => {
           setResults(r);
           setView("search");
+          // The server answers 200 with a `warning` when a source misbehaves, so
+          // "no results" can say why instead of looking like an empty catalogue.
+          if (r?.warning) setNotice({ kind: "err", text: r.warning, hints: r.errors || [] });
         })
-        .catch(() => setResults({ tracks: [], albums: [], artists: [], playlists: [] }))
+        .catch(() =>
+          setResults({
+            tracks: [],
+            albums: [],
+            artists: [],
+            playlists: [],
+            warning: "Search request failed.",
+          })
+        )
         .finally(() => setSearching(false));
     }, 280);
     return () => clearTimeout(t);
@@ -450,11 +533,12 @@ export default function App() {
     setGenres([]);
     setGenresLoading(true);
     const token = ++genreProbe.current;
-    const queue = [...GENRES];
+    // named `pending`, not `queue` — `queue` is the playback queue state
+    const pending = [...GENRES];
     const workers = Array.from({ length: 6 }, async () => {
-      while (queue.length) {
+      while (pending.length) {
         if (genreProbe.current !== token) return;
-        const g = queue.shift();
+        const g = pending.shift();
         try {
           const d = await loadGenreMeta(g.id);
           if (genreProbe.current !== token) return;
@@ -509,8 +593,8 @@ export default function App() {
       />
 
       <aside className="sidebar">
-        <div className="brand" title="Monochrome">
-          <img src="/logo.svg" alt="Monochrome" />
+        <div className="brand" title={`${APP_NAME} — by ${APP_AUTHOR}`}>
+          <img src={BRAND_LOGO} alt={APP_NAME} />
         </div>
         <NavButton id="home" current={view} onClick={goHome} label="Home">
           <HomeIcon />
@@ -564,6 +648,9 @@ export default function App() {
           </div>
         </div>
         <div className="content">
+          {notice && !noticeHidden && (
+            <Notice notice={notice} onRetry={retryNotice} onClose={dismissNotice} />
+          )}
           {view === "home" && (
             <Home
               browse={browse}
@@ -651,7 +738,12 @@ export default function App() {
             />
           )}
           {view === "settings" && (
-            <Settings theme={theme} setTheme={setTheme} />
+            <Settings
+              theme={theme}
+              setTheme={setTheme}
+              status={status}
+              onRefresh={() => refreshStatus(true)}
+            />
           )}
         </div>
       </main>
@@ -667,7 +759,9 @@ export default function App() {
           )}
           <div className="txt">
             <div className="t">{current?.title || "Nothing playing"}</div>
-            <div className="a">{current?.author || "Search to start listening"}</div>
+            <div className="a">
+              {buffering && current ? "Loading…" : current?.author || "Search to start listening"}
+            </div>
           </div>
           {current && (
             <button className={`icon-btn ${isLiked(current) ? "on" : ""}`} onClick={() => toggleLike(current)}>
@@ -683,8 +777,19 @@ export default function App() {
             <button className="icon-btn" onClick={() => skip(-1)} title="Previous">
               <PrevIcon size={20} />
             </button>
-            <button className="play-main" onClick={() => current && setPlaying((p) => !p)} title="Play/Pause">
-              {playing ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
+            <button
+              className={`play-main ${buffering ? "loading" : ""}`}
+              onClick={() => current && setPlaying((p) => !p)}
+              title={buffering ? "Loading…" : "Play/Pause"}
+              aria-busy={buffering ? "true" : "false"}
+            >
+              {buffering ? (
+                <span className="spinner" />
+              ) : playing ? (
+                <PauseIcon size={18} />
+              ) : (
+                <PlayIcon size={18} />
+              )}
             </button>
             <button className="icon-btn" onClick={() => skip(1)} title="Next">
               <NextIcon size={20} />
@@ -875,6 +980,35 @@ export default function App() {
   );
 }
 
+/** Explains why the catalogue is empty rather than showing a blank page. */
+function Notice({ notice, onRetry, onClose }) {
+  const hints = (notice.hints || []).filter(Boolean).slice(0, 4);
+  return (
+    <div className={`banner ${notice.kind === "err" ? "err" : ""}`} role="status">
+      <span className="b-ico">
+        <AlertIcon size={18} />
+      </span>
+      <div className="b-body">
+        <div className="b-title">Nothing to play yet</div>
+        <div className="b-text">{notice.text}</div>
+        {hints.length > 0 && (
+          <ul>
+            {hints.map((h, i) => (
+              <li key={i}>{h}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <button className="icon-btn b-close" onClick={onRetry} title="Retry" aria-label="Retry">
+        <RefreshIcon size={16} />
+      </button>
+      <button className="icon-btn b-close" onClick={onClose} title="Dismiss" aria-label="Dismiss">
+        <CloseIcon size={16} />
+      </button>
+    </div>
+  );
+}
+
 function BrowsePage({ genres, filter, loading, onOpen }) {
   const q = String(filter || "").trim().toLowerCase();
   const shown = genres.filter((g) => {
@@ -960,7 +1094,7 @@ function Home({ browse, recent, onPlayTrack, onOpen, onContext }) {
   }
   return (
     <>
-      <h1 className="page-title">Welcome to Monochrome</h1>
+      <h1 className="page-title">Welcome to {APP_NAME}</h1>
       <p className="page-sub">
         {recent.length ? "Pick up where you left off, or find something new." : "You haven’t listened to anything yet. Search for your favorite songs to get started!"}
       </p>
@@ -1032,9 +1166,12 @@ function SearchPage({ query, searching, results, tab, setTab, onPlayTrack, onOpe
           <button key={id} className={`tab ${tab === id ? "on" : ""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
-      {tab === "tracks" && (
-        r.tracks.length ? <TrackList tracks={r.tracks} onPlay={onPlayTrack} onContext={onContext} /> : <div className="empty">No tracks.</div>
-      )}
+      {tab === "tracks" &&
+        (r.tracks.length ? (
+          <TrackList tracks={r.tracks} onPlay={onPlayTrack} onContext={onContext} />
+        ) : (
+          <div className="empty">{r.warning || "No tracks."}</div>
+        ))}
       {tab === "albums" && (
         <div className="h-scroll" style={{ flexWrap: "wrap" }}>
           {r.albums.map((a) => (
@@ -1106,7 +1243,18 @@ function shuffleCopy(list) {
   return a;
 }
 
-function Settings({ theme, setTheme }) {
+function Settings({ theme, setTheme, status, onRefresh }) {
+  const node = status?.node;
+  const audio = status?.audio;
+  const dot = (ok) => ({
+    display: "inline-block",
+    width: 8,
+    height: 8,
+    borderRadius: "50%",
+    marginRight: 8,
+    verticalAlign: "middle",
+    background: ok ? "#4ade80" : "var(--danger)",
+  });
   return (
     <>
       <h1 className="page-title">Settings</h1>
@@ -1117,15 +1265,49 @@ function Settings({ theme, setTheme }) {
             <div style={{ color: "var(--muted-foreground)", fontSize: 13 }}>Choose your preferred color scheme</div>
           </div>
           <div className="pill">
-            <button className={theme === "monochrome" ? "on" : ""} onClick={() => setTheme("monochrome")}>Black</button>
-            <button className={theme === "white" ? "on" : ""} onClick={() => setTheme("white")}>White</button>
+            <button className={theme === "purple" ? "on" : ""} onClick={() => setTheme("purple")}>Purple</button>
+            <button className={theme === "light" ? "on" : ""} onClick={() => setTheme("light")}>Light</button>
           </div>
         </div>
         <div className="row">
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600 }}>
+              <span style={dot(!!node?.ok)} />
+              Lavalink
+            </div>
+            <div style={{ color: "var(--muted-foreground)", fontSize: 13, marginTop: 4, overflowWrap: "anywhere" }}>
+              {node?.ok ? (
+                <>
+                  Connected to <code>{node.base}</code>
+                  {node.version ? ` (v${node.version})` : ""}
+                  <br />
+                  Sources: {node.sources?.join(", ") || "none"}
+                  <br />
+                  Search: {node.searches?.join(", ") || "none"}
+                  {node.plugins?.length ? (
+                    <>
+                      <br />
+                      Plugins: {node.plugins.join(", ")}
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                node?.error || "Not connected."
+              )}
+            </div>
+          </div>
+          <button className="btn ghost" onClick={onRefresh}>Re-check</button>
+        </div>
+        <div className="row">
           <div>
-            <div style={{ fontWeight: 600 }}>Streaming</div>
-            <div style={{ color: "var(--muted-foreground)", fontSize: 13 }}>
-              Full tracks are resolved server-side. Lavalink credentials never leave the server.
+            <div style={{ fontWeight: 600 }}>
+              <span style={dot(!!(audio?.ytdlp || audio?.pluginRoute))} />
+              Streaming
+            </div>
+            <div style={{ color: "var(--muted-foreground)", fontSize: 13, marginTop: 4 }}>
+              Tracks are resolved and proxied server-side, so Lavalink credentials never reach the browser.
+              <br />
+              yt-dlp: {audio?.ytdlp ? "available" : "missing"} · ffmpeg: {audio?.ffmpeg ? "available" : "missing"} · mode: {audio?.mode || "auto"}
             </div>
           </div>
         </div>
@@ -1147,11 +1329,8 @@ function Settings({ theme, setTheme }) {
           <div>
             <div style={{ fontWeight: 600 }}>Credits</div>
             <div style={{ color: "var(--muted-foreground)", fontSize: 13, marginTop: 4, lineHeight: 1.55 }}>
-              This web has been made by Ayle (@alyfinnn) By{" "}
-              <a className="credit-link" href="https://discord.gg/aerox" target="_blank" rel="noreferrer">
-                AeroX
-              </a>
-              .
+              {APP_NAME} is designed and built by{" "}
+              <span className="credit-link">{APP_AUTHOR}</span>. Lyrics by LRCLIB.
             </div>
           </div>
         </div>

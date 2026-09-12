@@ -1,11 +1,37 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" width="100%" height="100%"
-  shape-rendering="crispEdges" role="img">
-  <title>Monochrome icon</title>
-  <rect width="8" height="8" fill="black" />
-  <g fill="white">
-    <rect x="3" y="1" width="4" height="2" />
-    <rect x="5" y="3" width="2" height="2" />
-    <rect x="1" y="3" width="2" height="2" />
-    <rect x="1" y="5" width="4" height="2" />
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="100%" height="100%" role="img" aria-label="Lahsunn Player">
+  <title>Lahsunn Player</title>
+  <defs>
+    <linearGradient id="ic-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c3aed" />
+      <stop offset="1" stop-color="#3b0764" />
+    </linearGradient>
+    <linearGradient id="ic-fur" x1="0" y1="0" x2="0.2" y2="1">
+      <stop offset="0" stop-color="#c4a481" />
+      <stop offset="1" stop-color="#84674c" />
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="15" fill="url(#ic-bg)" />
+
+  <!-- ears -->
+  <path d="M11 33 L17 9 L32 23 Z" fill="url(#ic-fur)" />
+  <path d="M53 33 L47 9 L32 23 Z" fill="url(#ic-fur)" />
+
+  <!-- head -->
+  <ellipse cx="32" cy="42" rx="27" ry="24" fill="url(#ic-fur)" />
+  <ellipse cx="32" cy="52" rx="15" ry="11" fill="#efe6dc" opacity="0.9" />
+
+  <!-- oversized googly eyes -->
+  <circle cx="45" cy="33" r="13" fill="#ffffff" stroke="#c8b8db" stroke-width="0.9" />
+  <circle cx="19" cy="33" r="13" fill="#ffffff" stroke="#c8b8db" stroke-width="0.9" />
+  <circle cx="45" cy="35" r="6.6" fill="#141018" />
+  <circle cx="19" cy="35" r="6.6" fill="#141018" />
+  <circle cx="43" cy="31.5" r="2.3" fill="#ffffff" opacity="0.9" />
+  <circle cx="17" cy="31.5" r="2.3" fill="#ffffff" opacity="0.9" />
+
+  <!-- nose + fangs -->
+  <path d="M32 46 q5 0 5 3.2 q0 3.2 -5 4.8 q-5 -1.6 -5 -4.8 q0 -3.2 5 -3.2 Z" fill="#d9808f" />
+  <path d="M26 56 q6 7 12 0 q-6 3 -12 0 Z" fill="#8f5560" />
+  <path d="M28.6 56.6 l1.6 3.6 l1.6 -3.6 Z" fill="#ffffff" />
+  <path d="M32.8 56.6 l1.6 3.6 l1.6 -3.6 Z" fill="#ffffff" />
 </svg>

@@ -1,6 +1,18 @@
+/**
+ * Where the API lives. Empty (the default) means "same origin", which is how a
+ * normal single-container deploy works.
+ *
+ * Set VITE_API_BASE at build time to point the UI at a backend on another host
+ * — needed when the UI is on a static/serverless host (e.g. Vercel) that cannot
+ * run the Node server. The backend must then allow this origin via CORS_ORIGIN.
+ */
+export const API_BASE = String(import.meta.env?.VITE_API_BASE || "").replace(/\/+$/, "");
+
+const api = (path) => `${API_BASE}${path}`;
+
 export function coverUrl(url) {
   if (!url) return "";
-  return `/api/cover?u=${encodeURIComponent(url)}`;
+  return api(`/api/cover?u=${encodeURIComponent(url)}`);
 }
 
 export function streamUrl(track) {
@@ -12,11 +24,11 @@ export function streamUrl(track) {
   if (track.duration) p.set("duration", String(Math.round(track.duration / 1000)));
   if (track.isrc) p.set("isrc", track.isrc);
   if (track.encoded) p.set("encoded", track.encoded);
-  return `/api/stream?${p.toString()}`;
+  return api(`/api/stream?${p.toString()}`);
 }
 
 export async function apiGet(path) {
-  const res = await fetch(path);
+  const res = await fetch(api(path));
   if (!res.ok) {
     const err = new Error("request_failed");
     err.status = res.status;
@@ -41,7 +53,7 @@ export async function fetchLyrics(track) {
   });
   if (track.album) p.set("album", track.album);
   if (track.duration) p.set("duration", String(Math.round(track.duration / 1000)));
-  const res = await fetch(`/api/lyrics?${p}`);
+  const res = await fetch(api(`/api/lyrics?${p}`));
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("lyrics");
   return res.json();
@@ -49,7 +61,7 @@ export async function fetchLyrics(track) {
 
 export function prefetch(track) {
   if (!track) return;
-  fetch("/api/prefetch", {
+  fetch(api("/api/prefetch"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

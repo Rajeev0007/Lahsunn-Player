@@ -39,6 +39,18 @@ const PORT = Number(process.env.PORT || 3000);
 const LL_AUTH = (process.env.LAVALINK_AUTH || process.env.LAVALINK_PASSWORD || "").trim();
 const LRCLIB = "https://lrclib.net";
 const CLIENT_UA = "LahsunnPlayer/2.0 (+by Rajeev)";
+
+/* Playlist importers. All optional — each degrades on its own. */
+const SPOTIFY_ID = (process.env.SPOTIFY_CLIENT_ID || "").trim();
+const SPOTIFY_SECRET = (process.env.SPOTIFY_CLIENT_SECRET || "").trim();
+const LASTFM_KEY = (process.env.LASTFM_API_KEY || "").trim();
+const IMPORT_MAX = Number(process.env.IMPORT_MAX_TRACKS || 500);
+// Overridable so the importers can be pointed at a regional proxy, and so the
+// test suite can exercise them without touching the real services.
+const stripSlash = (s) => String(s).replace(/\/+$/, "");
+const SPOTIFY_AUTH_URL = process.env.SPOTIFY_AUTH_URL || "https://accounts.spotify.com/api/token";
+const SPOTIFY_API_BASE = stripSlash(process.env.SPOTIFY_API_BASE || "https://api.spotify.com/v1");
+const LASTFM_API_BASE = process.env.LASTFM_API_BASE || "https://ws.audioscrobbler.com/2.0/";
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36";
 const truthy = (v) => /^(1|true|yes|on)$/i.test(String(v ?? "").trim());
@@ -184,6 +196,8 @@ const COVER_HOSTS = [
   "sndcdn.com",
   "mzstatic.com",
   "cdns-images.dzcdn.net",
+  "lastfm.freetls.fastly.net",
+  "lastfm-img2.akamaized.net",
 ];
 
 const MIME = {
@@ -683,6 +697,341 @@ async function genresWithArt() {
 }
 
 /* ------------------------------------------------------------------ *
+ * playlist import — Spotify / YouTube / Apple / Deezer / Last.fm
+ *
+ * Imported entries do not have to be Lavalink tracks. Streaming already
+ * resolves any track by title+artist (see resolveYoutubeCandidates and
+ * lookupTrack), so a plain {title, author, duration} object is playable. That
+ * is what makes Last.fm and the Spotify Web API usable without LavaSrc.
+ * ------------------------------------------------------------------ */
+
+async function httpJson(url, { headers = {}, method = "GET", body, timeout = 15000, label = "request" } = {}) {
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      body,
+      headers: { "User-Agent": CLIENT_UA, Accept: "application/json", ...headers },
+      signal: AbortSignal.timeout(timeout),
+    });
+  } catch (e) {
+    const why = e?.name === "TimeoutError" ? "timed out" : e?.cause?.code || e?.message || "network error";
+    throw new Error(`${label}: ${why}`);
+  }
+  const text = await res.text();
+  if (!res.ok) {
+    let detail = text.slice(0, 200);
+    try {
+      const j = JSON.parse(text);
+      detail = j.error?.message || j.message || j.error_description || j.error || detail;
+    } catch {
+      /* keep raw */
+    }
+    throw new Error(`${label}: HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label}: response was not JSON`);
+  }
+}
+
+/** Stable synthetic id for a track that has no source id of its own. */
+function synthId(title, author) {
+  const s = `${norm(title)}|${norm(author)}`;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return `im${(h >>> 0).toString(36)}`;
+}
+
+function makeImportedTrack({ title, author, album, artwork, duration, isrc, source, id, uri }) {
+  if (!title) return null;
+  const track = {
+    id: id || synthId(title, author),
+    encoded: null,
+    title: String(title).trim(),
+    author: String(author || "").trim(),
+    duration: Number(duration) || 0,
+    artwork: artwork || null,
+    uri: uri || null,
+    source: source || "import",
+    isrc: isrc || null,
+    album: album || "",
+    albumUrl: "",
+    artistUrl: "",
+    artistArtwork: null,
+  };
+  rememberTrack(track);
+  return track;
+}
+
+/* --- Spotify Web API (client credentials) ----------------------------- */
+
+let spToken = { value: null, exp: 0 };
+
+async function spotifyToken() {
+  if (!SPOTIFY_ID || !SPOTIFY_SECRET) {
+    throw new Error("Spotify import is not configured (set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET)");
+  }
+  if (spToken.value && Date.now() < spToken.exp - 30000) return spToken.value;
+  const data = await httpJson(SPOTIFY_AUTH_URL, {
+    method: "POST",
+    label: "Spotify auth",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${SPOTIFY_ID}:${SPOTIFY_SECRET}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
+  if (!data.access_token) throw new Error("Spotify auth: no access token returned");
+  spToken = { value: data.access_token, exp: Date.now() + (data.expires_in || 3600) * 1000 };
+  return spToken.value;
+}
+
+async function spotifyGet(pathAndQuery) {
+  const token = await spotifyToken();
+  const url = /^https?:\/\//i.test(pathAndQuery) ? pathAndQuery : `${SPOTIFY_API_BASE}${pathAndQuery}`;
+  return httpJson(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    label: "Spotify API",
+  });
+}
+
+const spTrackFrom = (t, fallbackArt) =>
+  t &&
+  makeImportedTrack({
+    id: t.id,
+    title: t.name,
+    author: (t.artists || []).map((a) => a.name).filter(Boolean).join(", "),
+    album: t.album?.name || "",
+    artwork: t.album?.images?.[0]?.url || fallbackArt || null,
+    duration: t.duration_ms,
+    isrc: t.external_ids?.isrc || null,
+    source: "spotify",
+    uri: t.external_urls?.spotify || null,
+  });
+
+/** Walk a Spotify paging object, calling onItem for every entry. */
+async function spotifyPaginate(firstPage, onItem, cap = IMPORT_MAX) {
+  let page = firstPage;
+  let count = 0;
+  while (page) {
+    for (const item of page.items || []) {
+      if (onItem(item)) count += 1;
+      if (count >= cap) return count;
+    }
+    if (!page.next) return count;
+    page = await spotifyGet(page.next);
+  }
+  return count;
+}
+
+async function importSpotify(kind, id) {
+  const tracks = [];
+
+  if (kind === "album") {
+    const album = await spotifyGet(`/albums/${id}?limit=50`);
+    // Simplified album tracks carry no album object, so re-attach it on every page.
+    const albumRef = { name: album.name, images: album.images };
+    const art = album.images?.[0]?.url || null;
+    await spotifyPaginate(album.tracks, (t) => {
+      const rec = spTrackFrom({ ...t, album: albumRef }, art);
+      if (rec) tracks.push(rec);
+      return !!rec;
+    });
+    return {
+      name: album.name,
+      author: (album.artists || []).map((a) => a.name).filter(Boolean).join(", "),
+      artwork: art,
+      type: "album",
+      url: album.external_urls?.spotify || null,
+      tracks,
+    };
+  }
+
+  const pl = await spotifyGet(`/playlists/${id}`);
+  await spotifyPaginate(pl.tracks, (item) => {
+    // Playlists can contain podcast episodes and unavailable entries.
+    const t = item?.track;
+    if (!t || t.type === "episode") return false;
+    const rec = spTrackFrom(t);
+    if (rec) tracks.push(rec);
+    return !!rec;
+  });
+  return {
+    name: pl.name || "Spotify playlist",
+    author: pl.owner?.display_name || "",
+    artwork: pl.images?.[0]?.url || null,
+    type: "playlist",
+    url: pl.external_urls?.spotify || null,
+    tracks,
+  };
+}
+
+/* --- Last.fm ---------------------------------------------------------- */
+
+const lfmImage = (arr) => {
+  if (!Array.isArray(arr)) return null;
+  const pick = arr[arr.length - 1] || arr[0];
+  const url = pick?.["#text"] || null;
+  // Last.fm returns a placeholder star image for tracks with no art.
+  return url && !/2a96cbd8b46e442fc41c2b86b821562f/.test(url) ? url : null;
+};
+
+async function importLastfm(user, mode = "loved") {
+  if (!LASTFM_KEY) throw new Error("Last.fm import is not configured (set LASTFM_API_KEY)");
+  if (!user) throw new Error("Last.fm needs a username");
+
+  const method =
+    mode === "top" ? "user.gettoptracks" : mode === "recent" ? "user.getrecenttracks" : "user.getlovedtracks";
+  const url = new URL(LASTFM_API_BASE);
+  url.searchParams.set("method", method);
+  url.searchParams.set("user", user);
+  url.searchParams.set("api_key", LASTFM_KEY);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("limit", String(Math.min(IMPORT_MAX, 200)));
+  if (mode === "top") url.searchParams.set("period", "overall");
+
+  const data = await httpJson(url, { label: "Last.fm API" });
+  if (data.error) throw new Error(`Last.fm API: ${data.message || data.error}`);
+
+  const root = data.lovedtracks || data.toptracks || data.recenttracks || {};
+  const list = Array.isArray(root.track) ? root.track : root.track ? [root.track] : [];
+  const seen = new Set();
+  const tracks = [];
+  for (const t of list) {
+    const title = t?.name;
+    const author = t?.artist?.name || t?.artist?.["#text"] || "";
+    if (!title) continue;
+    const key = `${norm(title)}|${norm(author)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const rec = makeImportedTrack({
+      title,
+      author,
+      artwork: lfmImage(t.image),
+      duration: Number(t.duration || 0) * 1000,
+      source: "lastfm",
+      uri: t.url || null,
+    });
+    if (rec) tracks.push(rec);
+    if (tracks.length >= IMPORT_MAX) break;
+  }
+  const label = mode === "top" ? "top tracks" : mode === "recent" ? "recent tracks" : "loved tracks";
+  return {
+    name: `${user} — ${label}`,
+    author: "Last.fm",
+    artwork: tracks.find((t) => t.artwork)?.artwork || null,
+    type: "playlist",
+    url: `https://www.last.fm/user/${encodeURIComponent(user)}`,
+    tracks,
+  };
+}
+
+/* --- dispatcher ------------------------------------------------------- */
+
+function detectImport(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return { kind: "empty" };
+
+  const lfm = /^lastfm:([^/\s]+)(?:\/(loved|top|recent))?$/i.exec(value);
+  if (lfm) return { kind: "lastfm", user: lfm[1], mode: (lfm[2] || "loved").toLowerCase() };
+
+  if (/^https?:\/\//i.test(value)) {
+    let u;
+    try {
+      u = new URL(value);
+    } catch {
+      return { kind: "invalid" };
+    }
+    const host = u.hostname.replace(/^www\./, "");
+
+    if (host === "last.fm" || host.endsWith(".last.fm")) {
+      const m = /^\/user\/([^/]+)(?:\/(loved|library)?)?/.exec(u.pathname);
+      if (m) return { kind: "lastfm", user: decodeURIComponent(m[1]), mode: "loved" };
+      return { kind: "invalid" };
+    }
+    if (host === "open.spotify.com") {
+      const m = /^\/(?:intl-[a-z]{2}\/)?(playlist|album|track)\/([A-Za-z0-9]+)/.exec(u.pathname);
+      if (m) return { kind: "spotify", type: m[1], id: m[2], url: value };
+      return { kind: "url", url: value };
+    }
+    return { kind: "url", url: value };
+  }
+
+  // Bare word: treat as a Last.fm username if that importer is available.
+  if (/^[\w.\- ]{2,40}$/.test(value)) return { kind: "lastfm", user: value, mode: "loved" };
+  return { kind: "invalid" };
+}
+
+/**
+ * Resolve whatever the user pasted into a playable playlist.
+ * Lavalink first (it handles YouTube playlists natively, and Spotify/Deezer/
+ * Apple when LavaSrc is installed); the direct APIs are the fallback.
+ */
+async function importPlaylist(raw) {
+  const target = detectImport(raw);
+  if (target.kind === "empty") throw new Error("Paste a playlist link or a Last.fm username");
+  if (target.kind === "invalid") throw new Error("That does not look like a playlist link or username");
+
+  if (target.kind === "lastfm") {
+    const out = await importLastfm(target.user, target.mode);
+    return { ...out, via: "lastfm" };
+  }
+
+  const attempts = [];
+
+  if (target.kind === "url" || target.kind === "spotify") {
+    const url = target.url;
+    try {
+      const col = await loadCollection(url);
+      if (col.tracks?.length) {
+        return {
+          name: col.info?.name || "Imported playlist",
+          author: col.info?.author || "",
+          artwork: col.info?.artwork || col.tracks.find((t) => t.artwork)?.artwork || null,
+          type: col.info?.type || "playlist",
+          url,
+          tracks: col.tracks.slice(0, IMPORT_MAX),
+          via: "lavalink",
+        };
+      }
+      attempts.push("lavalink: node returned no tracks for that link");
+    } catch (e) {
+      attempts.push(`lavalink: ${e.message}`);
+    }
+  }
+
+  if (target.kind === "spotify") {
+    if (target.type === "track") {
+      const t = await spotifyGet(`/tracks/${target.id}`);
+      const rec = spTrackFrom(t);
+      if (rec) {
+        return {
+          name: rec.title,
+          author: rec.author,
+          artwork: rec.artwork,
+          type: "track",
+          url: target.url,
+          tracks: [rec],
+          via: "spotify",
+        };
+      }
+    } else {
+      try {
+        const out = await importSpotify(target.type, target.id);
+        if (out.tracks.length) return { ...out, via: "spotify" };
+        attempts.push("spotify: playlist is empty or unavailable");
+      } catch (e) {
+        attempts.push(`spotify: ${e.message}`);
+      }
+    }
+  }
+
+  throw new Error(attempts.join(" | ") || "Could not import that link");
+}
+
+/* ------------------------------------------------------------------ *
  * audio: resolve a YouTube video, then stream it
  * ------------------------------------------------------------------ */
 
@@ -1084,9 +1433,15 @@ function serveStatic(req, res) {
       });
     }
     const ext = path.extname(file).toLowerCase();
+    const base = path.basename(file);
+    // The service worker and manifest must never be cached hard, or a stale
+    // worker can pin an old build indefinitely. Vite's assets are hashed, so
+    // those stay cacheable.
+    const noStore = ext === ".html" || base === "sw.js" || ext === ".webmanifest";
     res.writeHead(200, {
       "Content-Type": MIME[ext] || "application/octet-stream",
-      "Cache-Control": ext === ".html" ? "no-store" : "public, max-age=3600",
+      "Cache-Control": noStore ? "no-store" : "public, max-age=3600",
+      ...(base === "sw.js" ? { "Service-Worker-Allowed": "/" } : {}),
     });
     fs.createReadStream(file).pipe(res);
   });
@@ -1137,6 +1492,17 @@ async function handleApi(req, res) {
         ytdlp: hasBin("yt-dlp"),
         ffmpeg: hasBin("ffmpeg"),
         pluginRoute: pluginRouteUsable ? PLUGIN_ROUTE : null,
+      },
+      importers: {
+        // YouTube playlists go through Lavalink's youtube source, so they work
+        // whenever the node does.
+        youtube: !!info.sources?.includes("youtube"),
+        spotifyViaLavalink: !!info.sources?.includes("spotify"),
+        spotifyApi: !!(SPOTIFY_ID && SPOTIFY_SECRET),
+        deezer: !!info.sources?.includes("deezer"),
+        appleMusic: !!info.sources?.includes("applemusic"),
+        lastfm: !!LASTFM_KEY,
+        maxTracks: IMPORT_MAX,
       },
       hints: buildHints(info),
     });
@@ -1298,6 +1664,31 @@ async function handleApi(req, res) {
     return json(res, 200, { genre: g, tracks });
   }
 
+  if (p === "/api/import") {
+    const value = String(q.q || q.url || "").trim();
+    const t0 = Date.now();
+    try {
+      const out = await importPlaylist(value);
+      console.log(
+        `[IMPORT] "${value}" -> ${out.tracks.length} track(s) via ${out.via} in ${Date.now() - t0}ms`
+      );
+      return json(res, 200, {
+        ok: true,
+        name: out.name,
+        author: out.author,
+        artwork: out.artwork,
+        type: out.type,
+        url: out.url,
+        via: out.via,
+        tracks: out.tracks,
+        truncated: out.tracks.length >= IMPORT_MAX,
+      });
+    } catch (e) {
+      console.error(`[IMPORT] "${value}" failed: ${e.message}`);
+      return json(res, 200, { ok: false, error: e.message, tracks: [], hints: importHints() });
+    }
+  }
+
   if (p === "/api/collection") {
     const url = String(q.url || "").trim();
     if (!url) return json(res, 400, { error: "Missing url" });
@@ -1407,6 +1798,15 @@ async function handleApi(req, res) {
   json(res, 404, { error: "Not found" });
 }
 
+function importHints() {
+  const hints = [];
+  if (!SPOTIFY_ID || !SPOTIFY_SECRET) {
+    hints.push("For Spotify links on a node without LavaSrc, set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET.");
+  }
+  if (!LASTFM_KEY) hints.push("For Last.fm imports, set LASTFM_API_KEY.");
+  return hints;
+}
+
 function buildHints(info) {
   const hints = [];
   if (!info.ok) {
@@ -1455,6 +1855,11 @@ async function doctor() {
     console.log(`sources    : ${info.sources.join(", ") || "none"}`);
     console.log(`plugins    : ${info.plugins.join(", ") || "none"}`);
     console.log(`search     : ${info.searches.join(", ")}`);
+    console.log(
+      `importers  : youtube=${info.sources.includes("youtube") ? "yes" : "no"}` +
+        ` spotify=${info.sources.includes("spotify") ? "lavasrc" : SPOTIFY_ID && SPOTIFY_SECRET ? "web-api" : "no"}` +
+        ` lastfm=${LASTFM_KEY ? "yes" : "no"}`
+    );
 
     process.stdout.write(`\ntest search "top hits" ... `);
     try {
@@ -1467,7 +1872,7 @@ async function doctor() {
     }
   }
   console.log("");
-  for (const h of buildHints(info)) console.warn(`hint: ${h}`);
+  for (const h of [...buildHints(info), ...importHints()]) console.warn(`hint: ${h}`);
   process.exit(info.ok ? 0 : 1);
 }
 

@@ -39,6 +39,9 @@ Open http://localhost:3000
 | `STREAM_MODE` | `auto` (default), `ytdlp`, or `plugin` |
 | `CORS_ORIGIN` | Only if the UI is on another host. Comma-separated origins, or `*` |
 | `VITE_API_BASE` | Build-time. Point the UI at a backend on another host |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Optional. Spotify playlist import without LavaSrc |
+| `LASTFM_API_KEY` | Optional. Last.fm loved/top/recent track import |
+| `IMPORT_MAX_TRACKS` | Cap on tracks per import (default 500) |
 
 See `.env.example` for the optional yt-dlp settings.
 
@@ -77,6 +80,47 @@ container above running somewhere for the API.
 
 `vercel.json` pins the build command and output directory so Vercel does not
 apply its Vite preset (which expects `dist`, not `client/www`).
+
+## Importing playlists
+
+Open **Playlists** and paste any of these:
+
+| Paste | Needs |
+|---|---|
+| `https://www.youtube.com/playlist?list=…` | nothing — works on every Lavalink node |
+| `https://open.spotify.com/playlist/…` or `/album/…` | LavaSrc on your node, **or** `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` |
+| Apple Music / Deezer playlist links | the matching LavaSrc source on your node |
+| `lastfm:username` — also `/top`, `/recent` | `LASTFM_API_KEY` |
+| `https://www.last.fm/user/username` | `LASTFM_API_KEY` |
+
+Imported playlists are stored in your browser, not on the server. The Playlists
+screen shows a dot next to each service so you can see at a glance which
+importers are configured.
+
+Spotify links are tried through Lavalink first and fall back to the Spotify Web
+API, so they work even on a node without LavaSrc. Only the
+[client-credentials flow](https://developer.spotify.com/documentation/web-api/tutorials/client-credentials-flow)
+is used — create an app in the Spotify dashboard, no redirect URI or user login
+required.
+
+Imported tracks only need a title and artist: playback resolves them at play
+time, the same way Spotify-sourced search results are resolved.
+
+## Background playback
+
+Audio continues when the tab is in the background, and the OS lock screen /
+notification controls are wired up through the
+[Media Session API](https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API)
+— play, pause, next, previous, stop, seek, and a working scrubber.
+
+For the most reliable background playback on a phone, **install it as an app**:
+open the site and choose *Add to Home Screen* (iOS) or *Install app* (Android).
+It ships a web manifest and a service worker, so it installs as a standalone PWA
+and the shell loads offline. Installation requires HTTPS, which Render provides.
+
+The service worker never caches `/api/`, so playlists, search and the audio
+stream always come from the network — caching a partial range response would
+break seeking.
 
 ## Troubleshooting — "no songs are showing"
 
@@ -119,12 +163,15 @@ Common causes:
 ## Layout
 
 ```
-server/index.js          API, Lavalink client, stream proxy, doctor
-client/src/App.jsx       React UI
-client/src/styles.css    purple theme + responsive breakpoints
-client/public/logo.svg   brand mark
+server/index.js                   API, Lavalink client, importers, stream proxy, doctor
+client/src/App.jsx                React UI
+client/src/styles.css             purple theme + responsive breakpoints
+client/public/logo.svg            brand mark
+client/public/sw.js               service worker (PWA install, offline shell)
+client/public/manifest.webmanifest
 client/vite.config.js
-.env.example             Lavalink + yt-dlp placeholders
+Dockerfile / render.yaml          container deploy with yt-dlp + ffmpeg
+.env.example                      all configuration, annotated
 ```
 
 ## Branding

@@ -41,6 +41,13 @@ export const searchCatalog = (q) => apiGet(`/api/search?q=${encodeURIComponent(q
 export const browseHome = () => apiGet("/api/browse");
 /** Node reachability + which sources are usable, so a blank page can explain itself. */
 export const loadStatus = (refresh = false) => apiGet(`/api/status${refresh ? "?refresh=1" : ""}`);
+
+/**
+ * Import a playlist from a Spotify/YouTube/Apple/Deezer link, a Last.fm profile
+ * URL, or `lastfm:<user>[/loved|top|recent]`. Always resolves (never throws on a
+ * failed import) — check `ok`.
+ */
+export const importPlaylist = (value) => apiGet(`/api/import?q=${encodeURIComponent(value)}`);
 export const loadCollection = (url) => apiGet(`/api/collection?url=${encodeURIComponent(url)}`);
 export const loadGenres = () => apiGet("/api/genres");
 export const loadGenre = (id) => apiGet(`/api/genre?id=${encodeURIComponent(id)}`);

@@ -8,6 +8,7 @@ import {
   loadGenre,
   loadGenreMeta,
   loadStatus,
+  importPlaylist,
   parseLrc,
   prefetch,
   searchCatalog,
@@ -24,18 +25,21 @@ import {
   GearIcon,
   HeartIcon,
   HomeIcon,
+  ImportIcon,
   LibraryIcon,
   MoreIcon,
   NextIcon,
   PauseIcon,
   MicIcon,
   PlayIcon,
+  PlaylistIcon,
   PrevIcon,
   QueueIcon,
   RefreshIcon,
   RepeatIcon,
   SearchIcon,
   ShuffleIcon,
+  TrashIcon,
   VolumeIcon,
 } from "./icons.jsx";
 
@@ -43,6 +47,7 @@ const LS_LIKED = "mc-liked";
 const LS_RECENT = "mc-recent";
 const LS_VOL = "mc-vol";
 const LS_THEME = "mc-theme";
+const LS_PLAYLISTS = "mc-playlists";
 
 export const APP_NAME = "Lahsunn Player";
 export const APP_AUTHOR = "Rajeev";
@@ -132,6 +137,10 @@ export default function App() {
   const [muted, setMuted] = useState(false);
   const [liked, setLiked] = useState(() => loadJson(LS_LIKED, []));
   const [recent, setRecent] = useState(() => loadJson(LS_RECENT, []));
+  const [playlists, setPlaylists] = useState(() => loadJson(LS_PLAYLISTS, []));
+  const [openList, setOpenList] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState(null);
   const [panel, setPanel] = useState(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [lyrics, setLyrics] = useState(null);
@@ -162,6 +171,17 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(LS_RECENT, JSON.stringify(recent.slice(0, 80)));
   }, [recent]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_PLAYLISTS, JSON.stringify(playlists.slice(0, 100)));
+    } catch {
+      // A few large imports can exceed the ~5MB quota; keep the app usable.
+      setImportMsg({
+        err: true,
+        text: "Out of browser storage — delete an imported playlist to save more.",
+      });
+    }
+  }, [playlists]);
   useEffect(() => {
     localStorage.setItem(LS_VOL, String(volume));
     if (audioRef.current) audioRef.current.volume = muted ? 0 : volume;
@@ -226,7 +246,10 @@ export default function App() {
   }, [refreshStatus]);
 
   useEffect(() => {
-    if (view === "browse" || view === "genre") return undefined;
+    // On these views the search box acts as a local filter, not a catalog search.
+    if (view === "browse" || view === "genre" || view === "playlists" || view === "playlist") {
+      return undefined;
+    }
     const t = setTimeout(() => {
       const q = query.trim();
       if (!q) {
@@ -359,24 +382,93 @@ export default function App() {
       .catch(() => setLyricsStatus("empty"));
     prefetch(queue[index + 1]);
     if ("mediaSession" in navigator) {
+      const art = current.artwork ? coverUrl(current.artwork) : null;
       navigator.mediaSession.metadata = new MediaMetadata({
         title: current.title,
         artist: current.author,
-        album: current.album || "",
-        artwork: current.artwork ? [{ src: coverUrl(current.artwork), sizes: "512x512" }] : [],
+        album: current.album || APP_NAME,
+        // Offer several sizes so lock screens and Android notifications pick well.
+        artwork: art
+          ? ["96x96", "192x192", "256x256", "384x384", "512x512"].map((sizes) => ({
+              src: art,
+              sizes,
+              type: "image/jpeg",
+            }))
+          : [{ src: BRAND_LOGO, sizes: "512x512", type: "image/svg+xml" }],
       });
-      navigator.mediaSession.setActionHandler("play", () => {
-        setPlaying(true);
-        audio.play();
-      });
-      navigator.mediaSession.setActionHandler("pause", () => {
-        setPlaying(false);
-        audio.pause();
-      });
-      navigator.mediaSession.setActionHandler("previoustrack", () => skip(-1));
-      navigator.mediaSession.setActionHandler("nexttrack", () => skip(1));
     }
   }, [current && trackKey(current)]);
+
+  /* --- background playback -------------------------------------------- *
+   * Audio keeps running while the tab is hidden; these handlers are what
+   * make the OS lock screen / notification controls work.
+   * ------------------------------------------------------------------- */
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return undefined;
+    const audio = audioRef.current;
+    const set = (action, fn) => {
+      try {
+        navigator.mediaSession.setActionHandler(action, fn);
+      } catch {
+        // Not every browser supports every action.
+      }
+    };
+    set("play", () => {
+      setPlaying(true);
+      audio?.play().catch(() => {});
+    });
+    set("pause", () => {
+      setPlaying(false);
+      audio?.pause();
+    });
+    set("previoustrack", () => skip(-1));
+    set("nexttrack", () => skip(1));
+    set("stop", () => {
+      setPlaying(false);
+      if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
+      }
+    });
+    set("seekbackward", (d) => {
+      if (audio) audio.currentTime = Math.max(0, audio.currentTime - (d?.seekOffset || 10));
+    });
+    set("seekforward", (d) => {
+      if (audio) audio.currentTime = Math.min(audio.duration || Infinity, audio.currentTime + (d?.seekOffset || 10));
+    });
+    set("seekto", (d) => {
+      if (!audio || d?.seekTime == null) return;
+      if (d.fastSeek && audio.fastSeek) audio.fastSeek(d.seekTime);
+      else audio.currentTime = d.seekTime;
+      setCurrentTime(d.seekTime);
+    });
+    return () => {
+      for (const a of ["play", "pause", "previoustrack", "nexttrack", "stop", "seekbackward", "seekforward", "seekto"]) {
+        set(a, null);
+      }
+    };
+  }, [skip]);
+
+  // Keep the OS scrubber in sync.
+  useEffect(() => {
+    if (!("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) return;
+    if (!current || !Number.isFinite(duration) || duration <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        position: Math.min(Math.max(currentTime, 0), duration),
+        playbackRate: audioRef.current?.playbackRate || 1,
+      });
+    } catch {
+      // Ignore transient position/duration mismatches while a track loads.
+    }
+  }, [current, duration, Math.floor(currentTime), playing]);
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = current ? (playing ? "playing" : "paused") : "none";
+  }, [playing, current]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -479,6 +571,29 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, [lyricIndex, panel, lrc.length, lyricsStatus]);
 
+  /**
+   * Once createMediaElementSource() runs, ALL audio is routed through the
+   * AudioContext for the lifetime of the page — and it cannot be undone. If that
+   * context is ever suspended (backgrounding a tab, or the autoplay policy) the
+   * element keeps "playing" but outputs silence. So whenever the context exists
+   * and we intend to play, force it back to running.
+   */
+  useEffect(() => {
+    const resume = () => {
+      const ctx = analyserRef.current?.ctx;
+      if (ctx && ctx.state === "suspended" && playing) ctx.resume().catch(() => {});
+    };
+    resume();
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("focus", resume);
+    window.addEventListener("pageshow", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("focus", resume);
+      window.removeEventListener("pageshow", resume);
+    };
+  }, [playing]);
+
   useEffect(() => {
     if (!fullscreen || !audioRef.current) return;
     try {
@@ -506,7 +621,8 @@ export default function App() {
         const bars = 48;
         const step = Math.floor(data.length / bars);
         const bw = w / bars;
-        g.fillStyle = "#f5f5f5";
+        g.fillStyle =
+          getComputedStyle(document.documentElement).getPropertyValue("--accent-3").trim() || "#d8b4fe";
         for (let i = 0; i < bars; i++) {
           const v = data[i * step] / 255;
           const bh = v * h;
@@ -555,6 +671,61 @@ export default function App() {
     });
   };
 
+  const runImport = useCallback(async (value) => {
+    const text = String(value || "").trim();
+    if (!text || importing) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const r = await importPlaylist(text);
+      if (!r?.ok) {
+        setImportMsg({ err: true, text: r?.error || "Import failed.", hints: r?.hints || [] });
+        return;
+      }
+      if (!r.tracks?.length) {
+        setImportMsg({ err: true, text: "That playlist came back empty." });
+        return;
+      }
+      const list = {
+        id: `pl${Date.now().toString(36)}`,
+        name: r.name || "Imported playlist",
+        author: r.author || "",
+        artwork: r.artwork || null,
+        via: r.via,
+        url: r.url || null,
+        addedAt: Date.now(),
+        tracks: r.tracks,
+      };
+      // Re-importing the same link replaces the old copy instead of duplicating.
+      setPlaylists((prev) => [list, ...prev.filter((p) => !(p.url && list.url && p.url === list.url))]);
+      setImportMsg({
+        text: `Imported ${r.tracks.length} track${r.tracks.length === 1 ? "" : "s"} via ${r.via}${
+          r.truncated ? " (list was truncated)" : ""
+        }.`,
+      });
+      setOpenList(list);
+      setView("playlist");
+    } catch {
+      setImportMsg({ err: true, text: "Could not reach the import API." });
+    } finally {
+      setImporting(false);
+    }
+  }, [importing]);
+
+  const deletePlaylist = useCallback(
+    (id) => {
+      setPlaylists((prev) => prev.filter((p) => p.id !== id));
+      setOpenList((cur) => (cur?.id === id ? null : cur));
+      setView((v) => (v === "playlist" ? "playlists" : v));
+    },
+    []
+  );
+
+  const openPlaylist = (pl) => {
+    setOpenList(pl);
+    setView("playlist");
+  };
+
   const openGenre = (g) => {
     setView("genre");
     setGenrePage({ info: g, tracks: [] });
@@ -570,6 +741,8 @@ export default function App() {
       <audio
         ref={audioRef}
         crossOrigin="anonymous"
+        preload="auto"
+        playsInline
         onTimeUpdate={() => {
           const a = audioRef.current;
           setCurrentTime(a.currentTime);
@@ -605,6 +778,9 @@ export default function App() {
         <NavButton id="library" current={view} onClick={setView} label="Library">
           <LibraryIcon />
         </NavButton>
+        <NavButton id="playlists" current={view} onClick={setView} label="Playlists">
+          <PlaylistIcon />
+        </NavButton>
         <NavButton id="recent" current={view} onClick={setView} label="Recently played">
           <ClockIcon />
         </NavButton>
@@ -616,10 +792,10 @@ export default function App() {
 
       <main className="main">
         <div className="topbar">
-          {(view === "collection" || view === "genre") && (
+          {(view === "collection" || view === "genre" || view === "playlist") && (
             <button
               className="icon-btn"
-              onClick={() => setView(view === "genre" ? "browse" : "home")}
+              onClick={() => setView(view === "genre" ? "browse" : view === "playlist" ? "playlists" : "home")}
               aria-label="Back"
             >
               <BackIcon />
@@ -633,7 +809,7 @@ export default function App() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onFocus={() => {
-                if (view === "browse" || view === "genre") return;
+                if (view === "browse" || view === "genre" || view === "playlists" || view === "playlist") return;
                 if (query.trim()) setView("search");
               }}
             />
@@ -708,6 +884,32 @@ export default function App() {
                 <div className="empty">Nothing yet. Search for a song to get started.</div>
               )}
             </>
+          )}
+          {view === "playlists" && (
+            <PlaylistsPage
+              playlists={playlists}
+              importing={importing}
+              message={importMsg}
+              status={status}
+              onImport={runImport}
+              onOpen={openPlaylist}
+              onDelete={deletePlaylist}
+              onDismiss={() => setImportMsg(null)}
+            />
+          )}
+          {view === "playlist" && openList && (
+            <PlaylistPage
+              list={openList}
+              current={current}
+              playing={playing}
+              filter={query}
+              onPlay={playTrack}
+              onLike={toggleLike}
+              isLiked={isLiked}
+              onContext={setCtxMenu}
+              onDelete={deletePlaylist}
+              onBack={() => setView("playlists")}
+            />
           )}
           {view === "collection" && collection && (
             <CollectionPage
@@ -846,6 +1048,7 @@ export default function App() {
         <NavButton id="home" current={view} onClick={goHome} label="Home"><HomeIcon size={20} /></NavButton>
         <NavButton id="search" current={view} onClick={setView} label="Search"><SearchIcon size={20} /></NavButton>
         <NavButton id="library" current={view} onClick={setView} label="Library"><LibraryIcon size={20} /></NavButton>
+        <NavButton id="playlists" current={view} onClick={setView} label="Playlists"><PlaylistIcon size={20} /></NavButton>
         <NavButton id="recent" current={view} onClick={setView} label="Recent"><ClockIcon size={20} /></NavButton>
         <NavButton id="settings" current={view} onClick={setView} label="Settings"><GearIcon size={20} /></NavButton>
       </nav>
@@ -1006,6 +1209,207 @@ function Notice({ notice, onRetry, onClose }) {
         <CloseIcon size={16} />
       </button>
     </div>
+  );
+}
+
+const IMPORT_EXAMPLES = [
+  "https://open.spotify.com/playlist/…",
+  "https://www.youtube.com/playlist?list=…",
+  "lastfm:username",
+];
+
+function PlaylistsPage({
+  playlists,
+  importing,
+  message,
+  status,
+  onImport,
+  onOpen,
+  onDelete,
+  onDismiss,
+}) {
+  const [value, setValue] = useState("");
+  const imp = status?.importers;
+
+  const submit = (e) => {
+    e.preventDefault();
+    onImport(value);
+  };
+
+  return (
+    <>
+      <h1 className="page-title">Playlists</h1>
+      <p className="page-sub">
+        Import from Spotify, YouTube, Apple Music, Deezer or Last.fm. Playlists are saved on this device.
+      </p>
+
+      <form className="import-box" onSubmit={submit}>
+        <div className="import-row">
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="Paste a playlist link, or lastfm:username"
+            aria-label="Playlist link or Last.fm username"
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <button className="btn" type="submit" disabled={importing || !value.trim()}>
+            {importing ? <span className="spinner" /> : <ImportIcon size={17} />}
+            <span>{importing ? "Importing…" : "Import"}</span>
+          </button>
+        </div>
+        <div className="import-hint">
+          {IMPORT_EXAMPLES.map((ex) => (
+            <code key={ex}>{ex}</code>
+          ))}
+        </div>
+        {imp && (
+          <div className="import-caps">
+            <Cap on={imp.youtube} label="YouTube" />
+            <Cap on={imp.spotifyViaLavalink || imp.spotifyApi} label="Spotify" />
+            <Cap on={imp.deezer} label="Deezer" />
+            <Cap on={imp.appleMusic} label="Apple Music" />
+            <Cap on={imp.lastfm} label="Last.fm" />
+          </div>
+        )}
+      </form>
+
+      {message && (
+        <div className={`banner ${message.err ? "err" : ""}`} role="status">
+          <span className="b-ico">
+            <AlertIcon size={18} />
+          </span>
+          <div className="b-body">
+            <div className="b-text">{message.text}</div>
+            {!!message.hints?.length && (
+              <ul>
+                {message.hints.map((h, i) => (
+                  <li key={i}>{h}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <button className="icon-btn b-close" onClick={onDismiss} aria-label="Dismiss">
+            <CloseIcon size={16} />
+          </button>
+        </div>
+      )}
+
+      {playlists.length ? (
+        <div className="h-scroll" style={{ flexWrap: "wrap", overflowX: "visible" }}>
+          {playlists.map((pl) => (
+            <div className="card pl-card" key={pl.id}>
+              <div className="art" onClick={() => onOpen(pl)}>
+                {pl.artwork ? <Art src={pl.artwork} alt="" /> : <div className="pl-fallback"><PlaylistIcon size={34} /></div>}
+                <button
+                  className="pl-del"
+                  title="Delete playlist"
+                  aria-label="Delete playlist"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(pl.id);
+                  }}
+                >
+                  <TrashIcon size={15} />
+                </button>
+              </div>
+              <div className="meta" onClick={() => onOpen(pl)}>
+                <div className="t">{pl.name}</div>
+                <div className="a">
+                  {pl.tracks.length} track{pl.tracks.length === 1 ? "" : "s"} · {pl.via}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="empty">No playlists yet. Paste a link above to import one.</div>
+      )}
+    </>
+  );
+}
+
+function Cap({ on, label }) {
+  return (
+    <span className={`cap ${on ? "on" : ""}`} title={on ? `${label} import available` : `${label} not configured`}>
+      {label}
+    </span>
+  );
+}
+
+function PlaylistPage({
+  list,
+  current,
+  playing,
+  filter,
+  onPlay,
+  onLike,
+  isLiked,
+  onContext,
+  onDelete,
+  onBack,
+}) {
+  const q = String(filter || "").trim().toLowerCase();
+  const tracks = (list.tracks || []).filter((t) =>
+    q ? `${t.title} ${t.author} ${t.album || ""}`.toLowerCase().includes(q) : true
+  );
+  return (
+    <>
+      <div className="hero">
+        <div className="cover">
+          {list.artwork ? <Art src={list.artwork} alt="" /> : <div className="pl-fallback"><PlaylistIcon size={54} /></div>}
+        </div>
+        <div>
+          <div className="kicker">Imported via {list.via}</div>
+          <h1>{list.name}</h1>
+          <p>
+            {list.author ? `${list.author} · ` : ""}
+            {list.tracks.length} track{list.tracks.length === 1 ? "" : "s"}
+            {q ? ` · ${tracks.length} matching` : ""}
+          </p>
+          <div className="row-actions">
+            <button className="btn" disabled={!tracks.length} onClick={() => tracks[0] && onPlay(tracks[0], tracks)}>
+              Play
+            </button>
+            <button
+              className="btn ghost"
+              disabled={!tracks.length}
+              onClick={() => tracks[0] && onPlay(tracks[0], shuffleCopy(tracks))}
+            >
+              Shuffle play
+            </button>
+            {list.url && (
+              <a className="btn ghost" href={list.url} target="_blank" rel="noreferrer">
+                Source
+              </a>
+            )}
+            <button
+              className="btn ghost"
+              onClick={() => {
+                onDelete(list.id);
+                onBack();
+              }}
+            >
+              <TrashIcon size={16} />
+              <span>Delete</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      {tracks.length ? (
+        <TrackList
+          tracks={tracks}
+          current={current}
+          playing={playing}
+          onPlay={onPlay}
+          onLike={onLike}
+          isLiked={isLiked}
+          onContext={onContext}
+        />
+      ) : (
+        <div className="empty">{q ? "Nothing in this playlist matches that filter." : "This playlist is empty."}</div>
+      )}
+    </>
   );
 }
 

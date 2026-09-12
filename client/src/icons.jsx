@@ -164,3 +164,25 @@ export const RefreshIcon = (p) => (
     <path d="M21 19v-4h-4" />
   </Icon>
 );
+
+export const PlaylistIcon = (p) => (
+  <Icon {...p}>
+    <path d="M4 6h11M4 11h11M4 16h7" />
+    <circle cx="17" cy="16" r="3" />
+    <path d="M20 16V8l-3 1" />
+  </Icon>
+);
+export const ImportIcon = (p) => (
+  <Icon {...p}>
+    <path d="M12 3v11" />
+    <path d="m8 10.5 4 4 4-4" />
+    <path d="M4 17v2.5h16V17" />
+  </Icon>
+);
+export const TrashIcon = (p) => (
+  <Icon {...p}>
+    <path d="M4 7h16" />
+    <path d="M9 7V4.5h6V7" />
+    <path d="M6 7l1 13h10l1-13" />
+  </Icon>
+);

@@ -11,6 +11,7 @@ import {
   importPlaylist,
   parseLrc,
   postPresence,
+  setBackend,
   prefetch,
   searchCatalog,
   streamUrl,
@@ -184,6 +185,8 @@ export default function App() {
   const [genrePage, setGenrePage] = useState(null);
   const [genreLoading, setGenreLoading] = useState(false);
   const streamRetry = useRef(0);
+  const failStreak = useRef(0);
+  const statusRef = useRef(null);
   const genreProbe = useRef(0);
 
   const current = index >= 0 ? queue[index] : null;
@@ -219,6 +222,7 @@ export default function App() {
     return loadStatus(force)
       .then((s) => {
         setStatus(s);
+        statusRef.current = s;
         return s;
       })
       .catch(() => null);
@@ -245,19 +249,41 @@ export default function App() {
   // A blank page should always explain itself.
   useEffect(() => {
     if (!status) return;
-    if (!status.node?.ok) {
+    const canPlay = status.audio?.ytdlp || status.audio?.mode === "plugin";
+    const canSearch = status.node?.ok || status.backend?.effective === "ytdlp";
+
+    // Playback is the thing that actually matters; report it first.
+    if (!canPlay) {
+      setNotice({
+        kind: "err",
+        text: status.audio?.ytdlpError
+          ? `Nothing can play yet — ${status.audio.ytdlpError}`
+          : "Nothing can play yet — the server is still setting up yt-dlp.",
+        hints: [
+          "The server tries to download yt-dlp by itself; hit retry in a few seconds.",
+          "If it keeps failing, redeploy on Render using the Docker runtime — this repo's Dockerfile installs yt-dlp and ffmpeg.",
+        ],
+      });
+      return;
+    }
+    if (!canSearch) {
       setNotice({
         kind: "err",
         text: status.node?.error || "Lavalink is not reachable.",
         hints: status.hints || [],
       });
-    } else if (status.audio && !status.audio.ytdlp && status.audio.mode !== "plugin") {
-      setNotice({
-        kind: "err",
-        text: "Connected to Lavalink, but yt-dlp is not installed on the server, so nothing can play.",
-        hints: ["Install yt-dlp on the server's PATH and restart."],
-      });
+      return;
     }
+    // Everything needed is working. Mention the fallback without alarming.
+    if (!status.node?.ok && status.backend?.effective === "ytdlp") {
+      setNotice({
+        kind: "warn",
+        text: "Lavalink is offline, so music is coming straight from yt-dlp instead.",
+        hints: ["Search and playback work. Album and artist pages need Lavalink."],
+      });
+      return;
+    }
+    setNotice(null);
   }, [status]);
 
   /* --- Discord presence ------------------------------------------------ *
@@ -586,20 +612,36 @@ export default function App() {
     }
 
     const failed = current;
+    failStreak.current += 1;
+
+    // If several tracks in a row fail, the server is broken, not the track.
+    // Skipping onward would silently churn the entire queue, which looks like
+    // the player "looping and doing nothing".
+    if (failStreak.current >= 3) {
+      setPlaying(false);
+      setNotice({
+        kind: "err",
+        text: `${failStreak.current} tracks in a row failed to play, so playback stopped.`,
+        hints: [
+          statusRef.current?.audio?.ytdlp === false
+            ? "yt-dlp is not available on the server — that is the cause. Open Settings to see the details."
+            : "Open Settings to check the server status, or run npm run doctor.",
+          "On Render, deploying with the Docker runtime installs yt-dlp and ffmpeg for you.",
+        ],
+      });
+      refreshStatus(true);
+      return;
+    }
+
     const more = index < queue.length - 1;
     setNotice({
       kind: "err",
       text: `Could not play “${failed.title}”${failed.author ? ` by ${failed.author}` : ""}.`,
-      hints: more
-        ? ["Skipped to the next track.", "Run npm run doctor if this keeps happening."]
-        : [
-            "Check that yt-dlp is installed on the server (see Settings).",
-            "If the UI and API are on different hosts, CORS_ORIGIN must allow this origin.",
-          ],
+      hints: more ? ["Skipped to the next track."] : ["Open Settings to check the server status."],
     });
     if (more) skip(1);
     else setPlaying(false);
-  }, [current, index, queue.length, skip]);
+  }, [current, index, queue.length, skip, refreshStatus]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -867,6 +909,7 @@ export default function App() {
         onPlaying={() => {
           setBuffering(false);
           setPlaying(true);
+          failStreak.current = 0; // audio is flowing again
         }}
         onEnded={onEnded}
         onError={onStreamError}
@@ -1303,7 +1346,7 @@ function Notice({ notice, onRetry, onClose }) {
         <AlertIcon size={18} />
       </span>
       <div className="b-body">
-        <div className="b-title">Nothing to play yet</div>
+        <div className="b-title">{notice.kind === "err" ? "Something needs attention" : "Heads up"}</div>
         <div className="b-text">{notice.text}</div>
         {hints.length > 0 && (
           <ul>
@@ -1758,6 +1801,126 @@ function shuffleCopy(list) {
   return a;
 }
 
+const LS_ADMIN = "mc-admin-token";
+const BACKEND_LABELS = {
+  auto: "Auto",
+  lavalink: "Lavalink only",
+  ytdlp: "Direct (yt-dlp)",
+};
+
+/**
+ * Owner-only source switch. The server rejects changes unless ADMIN_TOKEN is
+ * configured, so this is informational for everyone else.
+ */
+function BackendRow({ status, onChanged }) {
+  const b = status?.backend;
+  const [token, setToken] = useState(() => localStorage.getItem(LS_ADMIN) || "");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const apply = async (mode) => {
+    if (busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await setBackend(token, mode);
+      if (r?.ok) {
+        localStorage.setItem(LS_ADMIN, token);
+        setMsg({ text: `Now using ${BACKEND_LABELS[r.backend] || r.backend} (serving from ${r.effective}).` });
+        onChanged?.();
+      } else {
+        setMsg({ err: true, text: r?.error || "Could not switch." });
+      }
+    } catch {
+      setMsg({ err: true, text: "Request failed." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const effectiveNote =
+    b?.effective === "ytdlp"
+      ? "Serving from yt-dlp directly — Lavalink is not being used."
+      : "Serving from Lavalink.";
+
+  return (
+    <div className="row presence-row">
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600 }}>
+          <span
+            style={{
+              display: "inline-block",
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              marginRight: 8,
+              verticalAlign: "middle",
+              background: b?.effective ? "#4ade80" : "var(--danger)",
+            }}
+          />
+          Music source
+        </div>
+        <div style={{ color: "var(--muted-foreground)", fontSize: 13, marginTop: 4, lineHeight: 1.55 }}>
+          {b ? (
+            <>
+              Mode <strong style={{ color: "var(--accent-3)" }}>{BACKEND_LABELS[b.mode] || b.mode}</strong> · {effectiveNote}
+              <br />
+              <b>Auto</b> uses Lavalink and falls back to yt-dlp when the node is offline, so the
+              player keeps working either way.
+              {b.maxTrackMinutes ? (
+                <>
+                  <br />
+                  Results longer than {b.maxTrackMinutes} minutes are hidden, to keep hour-long mixes out.
+                </>
+              ) : null}
+            </>
+          ) : (
+            "Loading…"
+          )}
+        </div>
+
+        {b?.canSwitch ? (
+          <div className="presence-setup">
+            <div className="presence-field">
+              <span className="presence-label">Admin</span>
+              <input
+                className="admin-input"
+                type="password"
+                value={token}
+                placeholder="ADMIN_TOKEN"
+                onChange={(e) => setToken(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <div className="tabs" style={{ margin: 0 }}>
+              {(b.options || []).map((o) => (
+                <button
+                  key={o}
+                  className={`tab ${b.mode === o ? "on" : ""}`}
+                  disabled={busy || !token}
+                  onClick={() => apply(o)}
+                >
+                  {BACKEND_LABELS[o] || o}
+                </button>
+              ))}
+            </div>
+            {msg && (
+              <div className="presence-note" style={msg.err ? { color: "var(--danger)" } : undefined}>
+                {msg.text}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="presence-note" style={{ marginTop: 8 }}>
+            Set <code>ADMIN_TOKEN</code> on the server to switch the source from here.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DiscordPresenceRow({ on, setOn, presenceKey, onRegenerate }) {
   const [copied, setCopied] = useState("");
   const origin = typeof window !== "undefined" ? window.location.origin : "https://your-app";
@@ -1904,6 +2067,7 @@ function Settings({
             </div>
           </div>
         </div>
+        <BackendRow status={status} onChanged={onRefresh} />
         <DiscordPresenceRow
           on={presenceOn}
           setOn={setPresenceOn}

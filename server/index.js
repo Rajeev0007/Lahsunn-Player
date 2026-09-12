@@ -2,6 +2,7 @@ import http from "http";
 import https from "https";
 import { spawn, spawnSync } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { Readable } from "stream";
@@ -605,12 +606,29 @@ async function searchEverywhere(query, { limit = 80 } = {}) {
     playlists: [],
     sources: {},
     errors: [],
+    engine: "lavalink",
     node: { ok: info.ok, base: info.base, error: info.error },
   };
   const accept = makeDeduper();
   const push = (list) => {
-    for (const t of list || []) if (accept(t)) out.tracks.push(t);
+    for (const t of list || []) if (accept(t) && isReasonableTrack(t)) out.tracks.push(t);
   };
+
+  // With the node down (or when explicitly configured) serve everything from
+  // yt-dlp instead, so search keeps working.
+  const engine = await pickEngine();
+  if (engine === "ytdlp") {
+    out.engine = "ytdlp";
+    try {
+      const tracks = await ytdlpSearch(query, Math.min(limit, 25));
+      out.sources.ytdlp = tracks.length;
+      push(tracks);
+    } catch (e) {
+      out.errors.push(`ytdlp: ${e.message}`);
+    }
+    out.tracks = out.tracks.slice(0, limit);
+    return out;
+  }
 
   const jobs = [];
 
@@ -629,9 +647,11 @@ async function searchEverywhere(query, { limit = 80 } = {}) {
 
   const settled = await Promise.allSettled(jobs.map((j) => j.run()));
 
+  let failed = 0;
   settled.forEach((r, i) => {
     const name = jobs[i].name;
     if (r.status === "rejected") {
+      failed += 1;
       out.errors.push(`${name}: ${r.reason?.message || r.reason}`);
       return;
     }
@@ -648,16 +668,154 @@ async function searchEverywhere(query, { limit = 80 } = {}) {
     }
   });
 
+  // Node answered /v4/info but every search failed: fall back rather than
+  // returning an empty page.
+  if (!out.tracks.length && failed === jobs.length && searchBackend === "auto") {
+    try {
+      const tracks = await ytdlpSearch(query, Math.min(limit, 25));
+      if (tracks.length) {
+        out.engine = "ytdlp";
+        out.sources.ytdlp = tracks.length;
+        push(tracks);
+      }
+    } catch (e) {
+      out.errors.push(`ytdlp: ${e.message}`);
+    }
+  }
+
   out.tracks = out.tracks.slice(0, limit);
   return out;
 }
 
+/* ------------------------------------------------------------------ *
+ * Backend selection
+ *
+ * Lavalink is the primary catalog, but it must not be a single point of failure.
+ * yt-dlp can search YouTube on its own, so the player still works with the node
+ * offline. SEARCH_BACKEND picks the policy; the owner can switch it at runtime.
+ *   auto     — Lavalink, falling back to yt-dlp when the node is unreachable
+ *   lavalink — Lavalink only
+ *   ytdlp    — yt-dlp only, no node required
+ * ------------------------------------------------------------------ */
+
+const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || "").trim();
+const BACKENDS = ["auto", "lavalink", "ytdlp"];
+const envBackend = String(process.env.SEARCH_BACKEND || "auto").toLowerCase();
+let searchBackend = BACKENDS.includes(envBackend) ? envBackend : "auto";
+const backendDefault = searchBackend;
+
+/** Longest thing we will treat as a song. Hour-long mixes make the UI useless. */
+const MAX_TRACK_MS = Math.max(1, Number(process.env.MAX_TRACK_MINUTES || 20)) * 60 * 1000;
+
+function isReasonableTrack(t) {
+  if (!t?.title) return false;
+  // duration 0 means "unknown", which is normal for imported/Last.fm entries.
+  if (t.duration && t.duration > MAX_TRACK_MS) return false;
+  return true;
+}
+
+const ytdlpSearchCache = new Map();
+
+/** Search YouTube with yt-dlp alone — no Lavalink involved. */
+async function ytdlpSearch(query, limit = 20) {
+  const key = `${query}|${limit}`;
+  const hit = ytdlpSearchCache.get(key);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.tracks;
+
+  const bin = await ensureYtdlp();
+  if (!bin) throw new Error(ytdlpState.error || "yt-dlp is not available");
+
+  const args = [
+    `ytsearch${Math.max(1, Math.min(40, limit))}:${query}`,
+    "--flat-playlist",
+    "--dump-single-json",
+    "--no-warnings",
+    "--quiet",
+    "--no-playlist",
+  ];
+  if (process.env.YTDLP_COOKIES) args.push("--cookies", process.env.YTDLP_COOKIES);
+  if (process.env.YTDLP_PROXY) args.push("--proxy", process.env.YTDLP_PROXY);
+
+  const json = await new Promise((resolve, reject) => {
+    const child = spawn(bin, args);
+    let out = "";
+    let err = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("yt-dlp search timed out"));
+    }, 45000);
+    child.stdout.on("data", (c) => (out += c));
+    child.stderr.on("data", (c) => (err += c));
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(new Error(`yt-dlp failed to start: ${e.message}`));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0 && !out.trim()) {
+        return reject(new Error(err.trim().split("\n").pop() || `yt-dlp exited ${code}`));
+      }
+      try {
+        resolve(JSON.parse(out));
+      } catch {
+        reject(new Error("yt-dlp search returned unparseable JSON"));
+      }
+    });
+  });
+
+  const tracks = [];
+  for (const e of json?.entries || []) {
+    const id = e?.id;
+    if (!isVideoId(id)) continue;
+    const track = {
+      id,
+      encoded: null,
+      title: e.title || "Unknown",
+      author: e.uploader || e.channel || e.playlist_uploader || "",
+      duration: Math.round((Number(e.duration) || 0) * 1000),
+      artwork:
+        (Array.isArray(e.thumbnails) && e.thumbnails[e.thumbnails.length - 1]?.url) ||
+        `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+      uri: e.url || `https://www.youtube.com/watch?v=${id}`,
+      source: "youtube",
+      isrc: null,
+      album: "",
+      albumUrl: "",
+      artistUrl: "",
+      artistArtwork: null,
+    };
+    if (!isReasonableTrack(track)) continue;
+    rememberTrack(track);
+    tracks.push(track);
+  }
+
+  ytdlpSearchCache.set(key, { at: Date.now(), tracks });
+  if (ytdlpSearchCache.size > 300) ytdlpSearchCache.delete(ytdlpSearchCache.keys().next().value);
+  return tracks;
+}
+
+/** Which engine should serve this request right now. */
+async function pickEngine() {
+  if (searchBackend === "ytdlp") return "ytdlp";
+  if (searchBackend === "lavalink") return "lavalink";
+  const info = await getNodeInfo();
+  return info.ok ? "lavalink" : "ytdlp";
+}
+
 /** Cheapest possible "does this query return anything" check. */
 async function firstHit(query, { limit = 50 } = {}) {
+  if ((await pickEngine()) === "ytdlp") {
+    try {
+      const tracks = (await ytdlpSearch(query, Math.min(limit, 12))).filter(isReasonableTrack);
+      return { tracks: tracks.slice(0, limit), via: tracks.length ? "ytdlp" : null };
+    } catch {
+      return { tracks: [], via: null };
+    }
+  }
   const info = await getNodeInfo();
   for (const p of availableSearches(info)) {
     try {
-      const tracks = await loadTracks(`${p.prefix}:${query}`);
+      const tracks = (await loadTracks(`${p.prefix}:${query}`)).filter(isReasonableTrack);
       if (tracks.length) return { tracks: tracks.slice(0, limit), via: p.prefix };
     } catch {
       /* try the next source */
@@ -686,6 +844,11 @@ async function probeGenre(g) {
 }
 
 async function genresWithArt() {
+  // Probing 30 genres means 30 yt-dlp processes on that engine, which takes far
+  // too long. Trust the list instead and let the genre page do the real query.
+  if ((await pickEngine()) === "ytdlp") {
+    return GENRES.map((g) => ({ ...g, artwork: null, trackCount: 1 }));
+  }
   const data = await mapPool(GENRES, 8, async (g) => {
     try {
       return await probeGenre(g);
@@ -1112,6 +1275,134 @@ function hasBin(name) {
   return bins[name];
 }
 
+/* ------------------------------------------------------------------ *
+ * yt-dlp provisioning
+ *
+ * Nothing plays without yt-dlp, and the most common deployment mistake is
+ * running on a plain Node host (Render's Node runtime, a bare VPS) where it was
+ * never installed. Rather than leaving the player permanently broken with only a
+ * warning, fetch the official standalone build once and cache it.
+ * ------------------------------------------------------------------ */
+
+const YTDLP_AUTO = !/^(0|false|no|off)$/i.test(String(process.env.YTDLP_AUTO_DOWNLOAD ?? "true").trim());
+const YTDLP_DIR = process.env.YTDLP_DIR || path.join(os.tmpdir(), "lahsunn-bin");
+
+/* Mutated in place, never reassigned: reassigning it inside ensureYtdlp() broke
+ * the `state.checking = <promise>` write, because JS resolves the assignment
+ * target before evaluating the right-hand side. */
+const ytdlpState = { path: null, source: null, error: null, checking: null };
+
+function tryYtdlpBinary(candidate) {
+  if (!candidate) return false;
+  try {
+    const r = spawnSync(candidate, ["--version"], { stdio: "pipe", timeout: 20000 });
+    return !r.error && r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/** The standalone asset that matches this machine. */
+function ytdlpAssetName() {
+  if (process.platform === "win32") return "yt-dlp.exe";
+  if (process.platform === "darwin") return "yt-dlp_macos";
+  if (process.platform === "linux") {
+    const arch = process.arch;
+    if (arch === "arm64") return "yt-dlp_linux_aarch64";
+    if (arch === "arm") return "yt-dlp_linux_armv7l";
+    if (arch === "x64") return "yt-dlp_linux";
+  }
+  // Anything else: the Python zipapp, which needs python3 on PATH.
+  return "yt-dlp";
+}
+
+async function downloadYtdlp() {
+  const asset = ytdlpAssetName();
+  const url = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}`;
+  const dest = path.join(YTDLP_DIR, process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
+
+  fs.mkdirSync(YTDLP_DIR, { recursive: true });
+  console.log(`[AUDIO] downloading ${asset} -> ${dest}`);
+
+  const res = await fetch(url, {
+    redirect: "follow",
+    headers: { "User-Agent": CLIENT_UA },
+    signal: AbortSignal.timeout(120000),
+  });
+  if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
+
+  const buf = Buffer.from(await res.arrayBuffer());
+  // A truncated or HTML error page would silently "install" and then fail later.
+  if (buf.length < 500000) throw new Error(`download too small (${buf.length} bytes)`);
+
+  const tmp = `${dest}.part`;
+  fs.writeFileSync(tmp, buf);
+  fs.chmodSync(tmp, 0o755);
+  fs.renameSync(tmp, dest);
+
+  if (!tryYtdlpBinary(dest)) {
+    // The zipapp fallback cannot run without python3.
+    if (asset === "yt-dlp" && !hasBin("python3")) {
+      throw new Error("downloaded the Python build but python3 is not installed");
+    }
+    throw new Error("downloaded binary would not run");
+  }
+  return dest;
+}
+
+/**
+ * Resolve yt-dlp once. Order: explicit YTDLP_PATH, then PATH, then a previously
+ * downloaded copy, then download it.
+ */
+async function ensureYtdlp() {
+  if (ytdlpState.path) return ytdlpState.path;
+  if (ytdlpState.checking) return ytdlpState.checking;
+
+  const found = (p, source) => {
+    ytdlpState.path = p;
+    ytdlpState.source = source;
+    ytdlpState.error = null;
+    return p;
+  };
+
+  const run = (async () => {
+    const explicit = (process.env.YTDLP_PATH || "").trim();
+    if (explicit) {
+      if (tryYtdlpBinary(explicit)) return found(explicit, "YTDLP_PATH");
+      ytdlpState.error = `YTDLP_PATH is set to "${explicit}" but it does not run`;
+      return null;
+    }
+
+    if (tryYtdlpBinary("yt-dlp")) return found("yt-dlp", "PATH");
+
+    const cached = path.join(YTDLP_DIR, process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
+    if (fs.existsSync(cached) && tryYtdlpBinary(cached)) return found(cached, "cached download");
+
+    if (!YTDLP_AUTO) {
+      ytdlpState.error = "yt-dlp is not installed and YTDLP_AUTO_DOWNLOAD is off";
+      return null;
+    }
+
+    try {
+      const p = await downloadYtdlp();
+      console.log(`[AUDIO] yt-dlp ready (${p})`);
+      return found(p, "auto-downloaded");
+    } catch (e) {
+      ytdlpState.error = `could not obtain yt-dlp — ${e.message}`;
+      console.error(`[AUDIO] ${ytdlpState.error}`);
+      return null;
+    }
+  })().finally(() => {
+    ytdlpState.checking = null;
+  });
+
+  ytdlpState.checking = run;
+  return run;
+}
+
+/** Synchronous view for status reporting; does not trigger a download. */
+const ytdlpReady = () => !!ytdlpState.path;
+
 async function resolveYoutubeCandidates(track) {
   if (!track) throw new Error("no_track");
   if (track.source === "youtube" && isVideoId(track.id)) return [track.id];
@@ -1187,9 +1478,9 @@ function ytdlpArgs(videoId) {
   return args;
 }
 
-function runYtdlp(videoId) {
+function runYtdlp(bin, videoId) {
   return new Promise((resolve, reject) => {
-    const child = spawn("yt-dlp", ytdlpArgs(videoId));
+    const child = spawn(bin, ytdlpArgs(videoId));
     let out = "";
     let err = "";
     const timer = setTimeout(() => {
@@ -1215,8 +1506,9 @@ async function directAudioUrl(videoId, { fresh = false } = {}) {
   if (fresh) directUrlCache.delete(videoId);
   const hit = directUrlCache.get(videoId);
   if (hit && Date.now() - hit.at < 90 * 60 * 1000) return hit.url;
-  if (!hasBin("yt-dlp")) throw new Error("yt-dlp is not installed on the server");
-  const url = await runYtdlp(videoId);
+  const bin = await ensureYtdlp();
+  if (!bin) throw new Error(ytdlpState.error || "yt-dlp is not available on the server");
+  const url = await runYtdlp(bin, videoId);
   directUrlCache.set(videoId, { url, at: Date.now() });
   if (directUrlCache.size > 400) directUrlCache.delete(directUrlCache.keys().next().value);
   return url;
@@ -1558,9 +1850,19 @@ async function handleApi(req, res) {
       },
       audio: {
         mode: STREAM_MODE,
-        ytdlp: hasBin("yt-dlp"),
+        ytdlp: ytdlpReady(),
+        ytdlpSource: ytdlpState.source,
+        ytdlpError: ytdlpState.error,
         ffmpeg: hasBin("ffmpeg"),
         pluginRoute: pluginRouteUsable ? PLUGIN_ROUTE : null,
+      },
+      backend: {
+        mode: searchBackend,
+        effective: await pickEngine(),
+        default: backendDefault,
+        options: BACKENDS,
+        canSwitch: !!ADMIN_TOKEN,
+        maxTrackMinutes: Math.round(MAX_TRACK_MS / 60000),
       },
       importers: {
         // YouTube playlists go through Lavalink's youtube source, so they work
@@ -1625,21 +1927,21 @@ async function handleApi(req, res) {
   }
 
   if (p === "/api/browse") {
-    if (browseCache.data && Date.now() - browseCache.at < 5 * 60 * 1000) {
+    if (browseCache.data && Date.now() - browseCache.at < 20 * 60 * 1000) {
       return json(res, 200, browseCache.data);
     }
-    const seeds = [
-      "top hits 2026",
-      "The Weeknd",
-      "Arijit Singh",
-      "Billie Eilish",
-      "Kendrick Lamar",
-      "SZA",
-      "Diljit Dosanjh",
-      "Arctic Monkeys",
-    ];
+    // Home used to fan 8 seeds across every search prefix — around 56 upstream
+    // requests before the page could render, which on a free-tier host is the
+    // difference between instant and ten seconds. firstHit stops at the first
+    // source that answers.
+    const seeds = ["top hits", "Arijit Singh", "The Weeknd", "trending songs", "Diljit Dosanjh"];
 
-    const searches = await Promise.allSettled(seeds.map((s) => searchEverywhere(s, { limit: 12 })));
+    const searches = await Promise.allSettled(
+      seeds.map(async (s) => {
+        const r = await firstHit(s, { limit: 8 });
+        return { tracks: r.tracks, albums: [], artists: [], playlists: [] };
+      })
+    );
 
     const accept = makeDeduper();
     const tracks = [];
@@ -1667,7 +1969,7 @@ async function handleApi(req, res) {
     // node without LavaSrc. They are a bonus now, never a requirement.
     const picks = [];
     const info = await getNodeInfo();
-    if (info.sources?.includes("spotify")) {
+    if (info.sources?.includes("spotify") && (await pickEngine()) === "lavalink") {
       const albumUrls = [
         "https://open.spotify.com/album/4yP0hdKOZPNshxUOjY0cZj",
         "https://open.spotify.com/album/7aJuG4TFXa2hmE4z1sxplt",
@@ -1731,6 +2033,40 @@ async function handleApi(req, res) {
       }
     }
     return json(res, 200, { genre: g, tracks });
+  }
+
+  /** Owner-only backend switch. Disabled unless ADMIN_TOKEN is configured. */
+  if (p === "/api/admin/backend") {
+    if (!ADMIN_TOKEN) {
+      return json(res, 403, {
+        ok: false,
+        error: "Switching is disabled. Set ADMIN_TOKEN on the server to enable it.",
+      });
+    }
+    const supplied =
+      (req.headers["x-admin-token"] && String(req.headers["x-admin-token"])) ||
+      String(q.token || "") ||
+      (req.method === "POST" ? String((await readBody(req)).token || "") : "");
+    if (supplied !== ADMIN_TOKEN) {
+      return json(res, 401, { ok: false, error: "Wrong admin token" });
+    }
+    const want = String(q.backend || "").toLowerCase();
+    if (want) {
+      if (!BACKENDS.includes(want)) {
+        return json(res, 400, { ok: false, error: `backend must be one of ${BACKENDS.join(", ")}` });
+      }
+      searchBackend = want;
+      // Cached results came from the old engine.
+      browseCache.data = null;
+      genreProbeCache.clear();
+      console.log(`[BACKEND] switched to "${searchBackend}" by owner`);
+    }
+    return json(res, 200, {
+      ok: true,
+      backend: searchBackend,
+      effective: await pickEngine(),
+      options: BACKENDS,
+    });
   }
 
   if (p === "/api/presence") {
@@ -1892,26 +2228,40 @@ function importHints() {
 
 function buildHints(info) {
   const hints = [];
+
+  /* Playback first. This used to sit behind an early return for an unreachable
+   * node, which hid the single most important hint whenever Lavalink was also
+   * misconfigured — exactly when the user most needs it. */
+  if (!ytdlpReady() && STREAM_MODE !== "plugin") {
+    hints.push(
+      ytdlpState.error
+        ? `Nothing can play: ${ytdlpState.error}`
+        : "yt-dlp is still being set up — retry in a moment."
+    );
+    hints.push(
+      "On Render, the surest fix is to deploy with the Docker runtime (this repo has a Dockerfile) so yt-dlp and ffmpeg are installed."
+    );
+  }
+
   if (!info.ok) {
     if (info.code === "no_config") {
-      hints.push("Set LAVALINK_HOST and LAVALINK_AUTH in .env (copy .env.example).");
+      hints.push("Lavalink is not configured. Set LAVALINK_HOST and LAVALINK_AUTH, or leave it off and use the direct (yt-dlp) source.");
     } else {
-      hints.push(
-        `Could not reach a Lavalink node. Tried: ${(info.attempts || [info.error]).join(" | ")}`
-      );
+      hints.push(`Could not reach a Lavalink node. Tried: ${(info.attempts || [info.error]).join(" | ")}`);
       hints.push("Check the host, port, LAVALINK_SECURE and the password.");
+    }
+    if (searchBackend !== "ytdlp") {
+      hints.push("Search is falling back to the direct yt-dlp source in the meantime.");
     }
     return hints;
   }
+
   if (!info.sources?.length) hints.push("The node reported no source managers.");
   if (!info.sources?.includes("spotify")) {
     hints.push("No Spotify source (LavaSrc plugin). Search falls back to YouTube/SoundCloud.");
   }
   if (!info.lavaSearch) {
     hints.push("No LavaSearch plugin, so album/artist/playlist cards will be sparse.");
-  }
-  if (!hasBin("yt-dlp") && STREAM_MODE !== "plugin") {
-    hints.push("yt-dlp is not installed — playback will fail. Install it and restart.");
   }
   return hints;
 }
@@ -1926,7 +2276,10 @@ async function doctor() {
   console.log(`configured : ${CONFIGURED?.url || "(nothing — LAVALINK_HOST is empty)"}`);
   console.log(`password   : ${LL_AUTH ? "set" : "MISSING"}`);
   console.log(`ui built   : ${fs.existsSync(path.join(WWW, "index.html")) ? "yes" : "no (run npm run build)"}`);
-  console.log(`yt-dlp     : ${hasBin("yt-dlp") ? "found" : "MISSING (playback will fail)"}`);
+  const ytBin = await ensureYtdlp();
+  console.log(
+    `yt-dlp     : ${ytBin ? `found (${ytdlpState.source}: ${ytBin})` : `MISSING — ${ytdlpState.error || "unknown"}`}`
+  );
   console.log(`ffmpeg     : ${hasBin("ffmpeg") ? "found" : "not found (optional)"}\n`);
 
   const info = await getNodeInfo(true);
@@ -1938,6 +2291,8 @@ async function doctor() {
     console.log(`sources    : ${info.sources.join(", ") || "none"}`);
     console.log(`plugins    : ${info.plugins.join(", ") || "none"}`);
     console.log(`search     : ${info.searches.join(", ")}`);
+    console.log(`backend    : ${searchBackend} (effective: ${await pickEngine()})`);
+    console.log(`switch     : ${ADMIN_TOKEN ? "enabled (ADMIN_TOKEN set)" : "disabled (no ADMIN_TOKEN)"}`);
     console.log(
       `importers  : youtube=${info.sources.includes("youtube") ? "yes" : "no"}` +
         ` spotify=${info.sources.includes("spotify") ? "lavasrc" : SPOTIFY_ID && SPOTIFY_SECRET ? "web-api" : "no"}` +
@@ -1991,6 +2346,12 @@ async function onListening() {
   if (!fs.existsSync(path.join(WWW, "index.html"))) {
     console.warn("[UI] client/www is missing — run `npm run build`");
   }
+
+  // Kick this off immediately: a fresh host may need to fetch the binary, and we
+  // would rather do it now than on the user's first play.
+  ensureYtdlp().then((bin) => {
+    if (bin) console.log(`[AUDIO] yt-dlp: ${ytdlpState.source} (${bin})`);
+  });
 
   const info = await getNodeInfo(true);
   if (info.ok) {

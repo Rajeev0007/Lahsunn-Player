@@ -37,6 +37,11 @@ Open http://localhost:3000
 | `LAVALINK_AUTH` | The node's `Authorization` password |
 | `LAVALINK_SECURE` | `true` for HTTPS. Ignored if `LAVALINK_HOST` has a scheme |
 | `STREAM_MODE` | `auto` (default), `ytdlp`, or `plugin` |
+| `SEARCH_BACKEND` | `auto` (default), `lavalink`, or `ytdlp` — see below |
+| `ADMIN_TOKEN` | Enables the owner-only source switch in Settings |
+| `MAX_TRACK_MINUTES` | Hide results longer than this (default 20) |
+| `YTDLP_AUTO_DOWNLOAD` | Fetch yt-dlp automatically if missing (default `true`) |
+| `YTDLP_PATH` | Use a specific yt-dlp binary instead of searching `PATH` |
 | `CORS_ORIGIN` | Only if the UI is on another host. Comma-separated origins, or `*` |
 | `VITE_API_BASE` | Build-time. Point the UI at a backend on another host |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Optional. Spotify playlist import without LavaSrc |
@@ -80,6 +85,37 @@ container above running somewhere for the API.
 
 `vercel.json` pins the build command and output directory so Vercel does not
 apply its Vite preset (which expects `dist`, not `client/www`).
+
+## Music source: Lavalink is optional
+
+Lavalink is no longer a single point of failure. `SEARCH_BACKEND` chooses where
+music comes from:
+
+| Mode | Behaviour |
+|---|---|
+| `auto` *(default)* | Lavalink, automatically switching to yt-dlp if the node is unreachable |
+| `lavalink` | Lavalink only |
+| `ytdlp` | yt-dlp searches YouTube directly — **no Lavalink required at all** |
+
+So if your node goes down, search and playback keep working. Album and artist
+pages still need Lavalink, since yt-dlp has no such concept.
+
+**Owner-only switch.** Set `ADMIN_TOKEN` on the server and a source switch
+appears in **Settings → Music source**. Enter the token once and you can flip
+between modes without redeploying. Without `ADMIN_TOKEN` the switch is disabled
+for everybody, and the row is read-only.
+
+### yt-dlp is installed for you
+
+Nothing plays without `yt-dlp`, and forgetting to install it is the most common
+reason a fresh deploy is silent. If it is not on `PATH`, the server downloads the
+official standalone build once at startup and caches it — so a plain Node host
+works too, not just the Docker image. `GET /api/status` reports which copy is in
+use (`PATH`, `YTDLP_PATH`, `cached download`, or `auto-downloaded`) and the exact
+error if it could not be obtained. Set `YTDLP_AUTO_DOWNLOAD=false` to opt out.
+
+The Docker image still installs `yt-dlp` and `ffmpeg` properly, and remains the
+most reliable option.
 
 ## Importing playlists
 
@@ -184,6 +220,15 @@ It prints exactly what is wrong: whether the node is reachable, whether the pass
 was accepted, which sources and plugins it has, and a live test search. The same
 information is available at runtime from `GET /api/status`, and the UI shows it as a
 banner instead of rendering an empty page.
+
+If the banner says **"Nothing can play yet"**, that is `yt-dlp` missing. The
+server tries to fetch it itself, so hit retry first. If it keeps failing, the host
+is probably blocking the download or has a read-only filesystem — redeploy using
+the **Docker runtime**, which installs `yt-dlp` and `ffmpeg` directly.
+
+On Render specifically: a service created as a **Node** app will not have
+`yt-dlp`. Either switch the service's runtime to **Docker** (this repo has a
+`Dockerfile`), or leave `YTDLP_AUTO_DOWNLOAD=true` and let the server fetch it.
 
 Common causes:
 

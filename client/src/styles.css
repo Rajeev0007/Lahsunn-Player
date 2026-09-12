@@ -1004,6 +1004,26 @@ a { color: inherit; text-decoration: none; }
   scrollbar-width: thin;
 }
 .presence-field code.presence-cmd { color: var(--foreground); }
+.admin-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0 10px;
+  font-size: 13px;
+  outline: none;
+}
+.admin-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.18); }
+.presence-note code {
+  background: var(--secondary);
+  color: var(--accent-3);
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+}
 .presence-note { font-size: 12.5px; color: var(--muted-foreground); line-height: 1.55; }
 .presence-note strong { color: var(--accent-3); }
 

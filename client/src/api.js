@@ -50,6 +50,20 @@ export const loadStatus = (refresh = false) => apiGet(`/api/status${refresh ? "?
 export const importPlaylist = (value) => apiGet(`/api/import?q=${encodeURIComponent(value)}`);
 
 /**
+ * Owner-only: read or change the search backend. Requires ADMIN_TOKEN to be set
+ * on the server; without it the server refuses and the UI stays read-only.
+ */
+export async function setBackend(token, backend) {
+  const qs = backend ? `?backend=${encodeURIComponent(backend)}` : "";
+  const res = await fetch(api(`/api/admin/backend${qs}`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Admin-Token": token },
+    body: JSON.stringify({ token }),
+  });
+  return res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
+}
+
+/**
  * Report what is playing so the Discord presence companion can pick it up.
  * Fire-and-forget: presence is cosmetic and must never disturb playback.
  */

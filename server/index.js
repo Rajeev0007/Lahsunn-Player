@@ -718,9 +718,14 @@ const ytdlpSearchCache = new Map();
 
 /** Search YouTube with yt-dlp alone — no Lavalink involved. */
 async function ytdlpSearch(query, limit = 20) {
-  const key = `${query}|${limit}`;
+  // Always fetch (and cache) the same page size, then slice. Keying the cache on
+  // the caller's limit meant the same query span two yt-dlp processes just
+  // because one caller wanted 12 results and another 25.
+  const FETCH = 25;
+  const key = query;
   const hit = ytdlpSearchCache.get(key);
-  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.tracks;
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.tracks.slice(0, limit);
+  limit = FETCH;
 
   const bin = await ensureYtdlp();
   if (!bin) throw new Error(ytdlpState.error || "yt-dlp is not available");
@@ -792,6 +797,76 @@ async function ytdlpSearch(query, limit = 20) {
   ytdlpSearchCache.set(key, { at: Date.now(), tracks });
   if (ytdlpSearchCache.size > 300) ytdlpSearchCache.delete(ytdlpSearchCache.keys().next().value);
   return tracks;
+}
+
+/**
+ * Expand a playlist URL with yt-dlp. Lets YouTube playlist import work with no
+ * Lavalink node at all, which is otherwise the one importer that needed one.
+ */
+async function ytdlpPlaylist(url, limit = 500) {
+  const bin = await ensureYtdlp();
+  if (!bin) throw new Error(ytdlpState.error || "yt-dlp is not available");
+
+  const args = [url, "--flat-playlist", "--dump-single-json", "--no-warnings", "--quiet"];
+  if (process.env.YTDLP_COOKIES) args.push("--cookies", process.env.YTDLP_COOKIES);
+  if (process.env.YTDLP_PROXY) args.push("--proxy", process.env.YTDLP_PROXY);
+
+  const json = await new Promise((resolve, reject) => {
+    const child = spawn(bin, args);
+    let out = "";
+    let err = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("yt-dlp playlist read timed out"));
+    }, 90000);
+    child.stdout.on("data", (c) => (out += c));
+    child.stderr.on("data", (c) => (err += c));
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(new Error(`yt-dlp failed to start: ${e.message}`));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0 && !out.trim()) {
+        return reject(new Error(err.trim().split("\n").pop() || `yt-dlp exited ${code}`));
+      }
+      try {
+        resolve(JSON.parse(out));
+      } catch {
+        reject(new Error("yt-dlp returned unparseable JSON"));
+      }
+    });
+  });
+
+  const entries = Array.isArray(json?.entries) ? json.entries : [];
+  if (!entries.length) throw new Error("no tracks in that playlist");
+
+  const tracks = [];
+  for (const e of entries.slice(0, limit)) {
+    if (!isVideoId(e?.id)) continue;
+    const t = makeImportedTrack({
+      id: e.id,
+      title: e.title,
+      author: e.uploader || e.channel || "",
+      artwork:
+        (Array.isArray(e.thumbnails) && e.thumbnails[e.thumbnails.length - 1]?.url) ||
+        `https://i.ytimg.com/vi/${e.id}/hqdefault.jpg`,
+      duration: Math.round((Number(e.duration) || 0) * 1000),
+      source: "youtube",
+      uri: e.url || `https://www.youtube.com/watch?v=${e.id}`,
+    });
+    if (t) tracks.push(t);
+  }
+  if (!tracks.length) throw new Error("playlist had no playable entries");
+
+  return {
+    name: json.title || "YouTube playlist",
+    author: json.uploader || json.channel || "",
+    artwork: tracks.find((t) => t.artwork)?.artwork || null,
+    type: "playlist",
+    url,
+    tracks,
+  };
 }
 
 /** Which engine should serve this request right now. */
@@ -1165,6 +1240,17 @@ async function importPlaylist(raw) {
     }
   }
 
+  // yt-dlp can expand YouTube (and many other) playlist URLs on its own, so this
+  // importer no longer depends on having a reachable node.
+  if (target.kind === "url") {
+    try {
+      const out = await ytdlpPlaylist(target.url, IMPORT_MAX);
+      return { ...out, via: "ytdlp" };
+    } catch (e) {
+      attempts.push(`ytdlp: ${e.message}`);
+    }
+  }
+
   if (target.kind === "spotify") {
     if (target.type === "track") {
       const t = await spotifyGet(`/tracks/${target.id}`);
@@ -1410,23 +1496,9 @@ async function resolveYoutubeCandidates(track) {
   const key = `${track.source}:${track.id}`;
   if (ytResolveCache.has(key)) return ytResolveCache.get(key);
 
-  const queries = [];
-  if (track.isrc) queries.push(`ytmsearch:"${track.isrc}"`);
-  if (track.title) {
-    queries.push(`ytmsearch:${track.title} ${track.author}`);
-    queries.push(`ytsearch:${track.title} ${track.author} audio`);
-    queries.push(`ytsearch:${track.title} ${track.author} official`);
-  }
-
   const ranked = [];
-  for (const q of queries) {
-    let results = [];
-    try {
-      results = await loadTracks(q);
-    } catch {
-      continue;
-    }
-    for (const r of results.slice(0, 8)) {
+  const consider = (results) => {
+    for (const r of (results || []).slice(0, 8)) {
       if (!isVideoId(r.id)) continue;
       const delta = Math.abs((r.duration || 0) - (track.duration || 0));
       const a = String(r.title).toLowerCase();
@@ -1434,8 +1506,41 @@ async function resolveYoutubeCandidates(track) {
       const titleHit = a.includes(b.slice(0, 18)) || b.includes(a.slice(0, 18));
       ranked.push({ id: r.id, score: delta + (titleHit ? 0 : 25000) });
     }
-    // A confident early match means we can stop querying.
-    if (ranked.some((r) => r.score < 4000)) break;
+  };
+
+  // Lavalink resolves fastest when it is available.
+  if ((await pickEngine()) === "lavalink") {
+    const queries = [];
+    if (track.isrc) queries.push(`ytmsearch:"${track.isrc}"`);
+    if (track.title) {
+      queries.push(`ytmsearch:${track.title} ${track.author}`);
+      queries.push(`ytsearch:${track.title} ${track.author} audio`);
+      queries.push(`ytsearch:${track.title} ${track.author} official`);
+    }
+    for (const q of queries) {
+      try {
+        consider(await loadTracks(q));
+      } catch {
+        continue;
+      }
+      // A confident early match means we can stop querying.
+      if (ranked.some((r) => r.score < 4000)) break;
+    }
+  }
+
+  /**
+   * Fall back to yt-dlp. Without this, matching a track that is not already a
+   * YouTube video — anything imported from Spotify or Last.fm — went exclusively
+   * through Lavalink, so imported playlists were unplayable whenever the node was
+   * down. That defeated the point of having a Lavalink-free source.
+   */
+  if (!ranked.length && track.title) {
+    const query = `${track.title} ${track.author}`.trim();
+    try {
+      consider(await ytdlpSearch(query, 10));
+    } catch {
+      /* nothing else to try */
+    }
   }
 
   ranked.sort((a, b) => a.score - b.score);
@@ -2010,6 +2115,12 @@ async function handleApi(req, res) {
     const id = String(q.id || "").trim();
     const g = GENRES.find((x) => x.id === id);
     if (!g) return json(res, 404, { error: "Unknown genre" });
+    // The Browse page calls this once per genre. Probing 30 of them on the
+    // yt-dlp engine would spawn 30 processes, so trust the list there instead —
+    // the same reasoning as genresWithArt(), which the UI does not call.
+    if ((await pickEngine()) === "ytdlp") {
+      return json(res, 200, { ok: true, genre: { ...g, artwork: null, trackCount: 1 } });
+    }
     const rec = await probeGenre(g);
     return json(res, 200, { ok: rec.trackCount > 0, genre: rec });
   }

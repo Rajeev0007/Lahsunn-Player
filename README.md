@@ -97,8 +97,14 @@ music comes from:
 | `lavalink` | Lavalink only |
 | `ytdlp` | yt-dlp searches YouTube directly — **no Lavalink required at all** |
 
-So if your node goes down, search and playback keep working. Album and artist
-pages still need Lavalink, since yt-dlp has no such concept.
+If your node goes down, these all keep working: search, browse, genres, playback,
+YouTube playlist import, and matching imported Spotify/Last.fm tracks to audio.
+
+Only these genuinely need Lavalink, because yt-dlp has no equivalent:
+
+- Album and artist pages
+- Spotify / Apple Music / Deezer **link** import — though Spotify links still work
+  without a node if you set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`
 
 **Owner-only switch.** Set `ADMIN_TOKEN` on the server and a source switch
 appears in **Settings → Music source**. Enter the token once and you can flip
@@ -123,7 +129,7 @@ Open **Playlists** and paste any of these:
 
 | Paste | Needs |
 |---|---|
-| `https://www.youtube.com/playlist?list=…` | nothing — works on every Lavalink node |
+| `https://www.youtube.com/playlist?list=…` | nothing — works with or without a Lavalink node |
 | `https://open.spotify.com/playlist/…` or `/album/…` | LavaSrc on your node, **or** `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` |
 | Apple Music / Deezer playlist links | the matching LavaSrc source on your node |
 | `lastfm:username` — also `/top`, `/recent` | `LASTFM_API_KEY` |

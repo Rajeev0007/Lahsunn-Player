@@ -18,12 +18,11 @@ export function coverUrl(url) {
 export function streamUrl(track) {
   const p = new URLSearchParams();
   p.set("id", track.id);
-  p.set("src", track.source || "spotify");
+  p.set("src", track.source || "youtube");
   if (track.title) p.set("title", track.title);
   if (track.author) p.set("author", track.author);
   if (track.duration) p.set("duration", String(Math.round(track.duration / 1000)));
   if (track.isrc) p.set("isrc", track.isrc);
-  if (track.encoded) p.set("encoded", track.encoded);
   return api(`/api/stream?${p.toString()}`);
 }
 
@@ -39,29 +38,15 @@ export async function apiGet(path) {
 
 export const searchCatalog = (q) => apiGet(`/api/search?q=${encodeURIComponent(q)}`);
 export const browseHome = () => apiGet("/api/browse");
-/** Node reachability + which sources are usable, so a blank page can explain itself. */
+/** Server status: yt-dlp readiness and importer availability. */
 export const loadStatus = (refresh = false) => apiGet(`/api/status${refresh ? "?refresh=1" : ""}`);
 
 /**
- * Import a playlist from a Spotify/YouTube/Apple/Deezer link, a Last.fm profile
- * URL, or `lastfm:<user>[/loved|top|recent]`. Always resolves (never throws on a
+ * Import a playlist from a Spotify/YouTube link, a Last.fm profile URL, or
+ * `lastfm:<user>[/loved|top|recent]`. Always resolves (never throws on a
  * failed import) — check `ok`.
  */
 export const importPlaylist = (value) => apiGet(`/api/import?q=${encodeURIComponent(value)}`);
-
-/**
- * Owner-only: read or change the search backend. Requires ADMIN_TOKEN to be set
- * on the server; without it the server refuses and the UI stays read-only.
- */
-export async function setBackend(token, backend) {
-  const qs = backend ? `?backend=${encodeURIComponent(backend)}` : "";
-  const res = await fetch(api(`/api/admin/backend${qs}`), {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Admin-Token": token },
-    body: JSON.stringify({ token }),
-  });
-  return res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
-}
 
 /**
  * Report what is playing so the Discord presence companion can pick it up.
@@ -105,7 +90,6 @@ export function prefetch(track) {
       author: track.author,
       duration: track.duration,
       isrc: track.isrc,
-      encoded: track.encoded,
     }),
   }).catch(() => {});
 }

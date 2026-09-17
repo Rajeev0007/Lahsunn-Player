@@ -8,14 +8,11 @@ services:
     plan: free
     healthCheckPath: /api/health
     envVars:
-      # Set these in the Render dashboard; they are intentionally not committed.
-      - key: LAVALINK_HOST
+      # Optional: Spotify playlist import (client credentials)
+      - key: SPOTIFY_CLIENT_ID
         sync: false
-      - key: LAVALINK_PORT
+      - key: SPOTIFY_CLIENT_SECRET
         sync: false
-      - key: LAVALINK_AUTH
+      # Optional: Last.fm playlist import
+      - key: LASTFM_API_KEY
         sync: false
-      - key: LAVALINK_SECURE
-        sync: false
-      - key: STREAM_MODE
-        value: ytdlp

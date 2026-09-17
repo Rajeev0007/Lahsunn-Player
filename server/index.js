@@ -49,7 +49,32 @@ const SPOTIFY_AUTH_URL = process.env.SPOTIFY_AUTH_URL || "https://accounts.spoti
 const SPOTIFY_API_BASE = stripSlash(process.env.SPOTIFY_API_BASE || "https://api.spotify.com/v1");
 const LASTFM_API_BASE = process.env.LASTFM_API_BASE || "https://ws.audioscrobbler.com/2.0/";
 const BROWSER_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+/* ------------------------------------------------------------------ *
+ * yt-dlp common arguments
+ *
+ * YouTube actively blocks datacenter IPs (Render, Railway, Fly, etc.).
+ * The web_embedded player client bypasses most of these restrictions.
+ * A realistic User-Agent is also essential — without it, YouTube returns
+ * empty search results or 403s on audio URLs.
+ * ------------------------------------------------------------------ */
+
+const YTDLP_CLIENT = process.env.YTDLP_CLIENT || "web_embedded";
+
+function ytdlpBaseArgs() {
+  const args = [
+    "--no-warnings",
+    "--quiet",
+    "--user-agent", BROWSER_UA,
+    "--extractor-args", `youtube:player_client=${YTDLP_CLIENT}`,
+  ];
+  if (process.env.YTDLP_COOKIES) args.push("--cookies", process.env.YTDLP_COOKIES);
+  if (process.env.YTDLP_PROXY) args.push("--proxy", process.env.YTDLP_PROXY);
+  const extra = (process.env.YTDLP_ARGS || "").trim();
+  if (extra) args.push(...extra.split(/\s+/));
+  return args;
+}
 
 /* ------------------------------------------------------------------ *
  * caches
@@ -428,12 +453,9 @@ async function ytdlpSearch(query, limit = 20) {
     `ytsearch${Math.max(1, Math.min(40, FETCH))}:${query}`,
     "--flat-playlist",
     "--dump-single-json",
-    "--no-warnings",
-    "--quiet",
     "--no-playlist",
+    ...ytdlpBaseArgs(),
   ];
-  if (process.env.YTDLP_COOKIES) args.push("--cookies", process.env.YTDLP_COOKIES);
-  if (process.env.YTDLP_PROXY) args.push("--proxy", process.env.YTDLP_PROXY);
 
   const data = await new Promise((resolve, reject) => {
     const child = spawn(bin, args);
@@ -536,9 +558,7 @@ async function ytdlpPlaylist(url, limit = 500) {
   const bin = await ensureYtdlp();
   if (!bin) throw new Error(ytdlpState.error || "yt-dlp is not available");
 
-  const args = [url, "--flat-playlist", "--dump-single-json", "--no-warnings", "--quiet"];
-  if (process.env.YTDLP_COOKIES) args.push("--cookies", process.env.YTDLP_COOKIES);
-  if (process.env.YTDLP_PROXY) args.push("--proxy", process.env.YTDLP_PROXY);
+  const args = [url, "--flat-playlist", "--dump-single-json", ...ytdlpBaseArgs()];
 
   const data = await new Promise((resolve, reject) => {
     const child = spawn(bin, args);
@@ -956,18 +976,13 @@ function getPresence(key) {
  * ------------------------------------------------------------------ */
 
 function ytdlpArgs(videoId) {
-  const extra = (process.env.YTDLP_ARGS || "").trim();
   const args = [
     "--no-playlist",
-    "--no-warnings",
-    "--quiet",
     "-f",
     process.env.YTDLP_FORMAT || "bestaudio[ext=m4a]/bestaudio/best",
     "-g",
+    ...ytdlpBaseArgs(),
   ];
-  if (process.env.YTDLP_COOKIES) args.push("--cookies", process.env.YTDLP_COOKIES);
-  if (process.env.YTDLP_PROXY) args.push("--proxy", process.env.YTDLP_PROXY);
-  if (extra) args.push(...extra.split(/\s+/));
   args.push(`https://www.youtube.com/watch?v=${videoId}`);
   return args;
 }

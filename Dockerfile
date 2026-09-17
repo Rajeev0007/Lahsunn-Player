@@ -17,12 +17,13 @@ FROM node:22-alpine
 # ffmpeg is optional (used for remuxing). python3 is required by the yt-dlp zipapp.
 # The plain `yt-dlp` release is a Python zipapp and works on musl/Alpine;
 # `yt-dlp_linux` is glibc-only and would not run here.
+# Always fetch the latest yt-dlp — YouTube changes often and an old build will 403.
 RUN apk add --no-cache ffmpeg python3 ca-certificates curl \
- && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+ && curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" \
       -o /usr/local/bin/yt-dlp \
  && chmod +x /usr/local/bin/yt-dlp \
- && apk del curl \
- && yt-dlp --version
+ && yt-dlp --version \
+ && apk del curl
 
 WORKDIR /app
 

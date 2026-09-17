@@ -14,7 +14,7 @@ RUN npm run build
 # ---------- runtime ----------
 FROM node:22-alpine
 
-# ffmpeg is optional (used to remux), python3 is required by the yt-dlp zipapp.
+# ffmpeg is optional (used for remuxing). python3 is required by the yt-dlp zipapp.
 # The plain `yt-dlp` release is a Python zipapp and works on musl/Alpine;
 # `yt-dlp_linux` is glibc-only and would not run here.
 RUN apk add --no-cache ffmpeg python3 ca-certificates curl \

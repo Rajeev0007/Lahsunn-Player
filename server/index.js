@@ -1,5 +1,4 @@
 import http from "http";
-import https from "https";
 import { spawn, spawnSync } from "child_process";
 import fs from "fs";
 import os from "os";
@@ -51,7 +50,6 @@ const SPOTIFY_API_BASE = stripSlash(process.env.SPOTIFY_API_BASE || "https://api
 const LASTFM_API_BASE = process.env.LASTFM_API_BASE || "https://ws.audioscrobbler.com/2.0/";
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36";
-const truthy = (v) => /^(1|true|yes|on)$/i.test(String(v ?? "").trim());
 
 /* ------------------------------------------------------------------ *
  * caches

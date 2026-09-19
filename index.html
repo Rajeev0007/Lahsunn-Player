@@ -121,7 +121,10 @@ window.__loruErrors = [];
   <aside class="sidebar" id="sidebar" aria-label="Main navigation">
     <div class="sidebar__head">
       <a class="brand" href="#/home" data-nav>
-        <img class="brand__mark" src="assets/img/logo-icon.svg" alt="" width="36" height="36" decoding="async" />
+        <!-- Uses assets/img/logo.png when present, otherwise the bundled SVG.
+             Drop your own logo.png in and it appears here automatically. -->
+        <img class="brand__mark" src="assets/img/logo.png" alt="" width="36" height="36"
+             decoding="async" onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'" />
         <span class="brand__text">
           <strong>Loru</strong><span>Player</span>
         </span>
@@ -168,7 +171,8 @@ window.__loruErrors = [];
           <button class="icon-btn" id="btnForward" aria-label="Go forward"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
         </div>
         <a class="brand brand--compact" href="#/home" data-nav aria-label="Loru Player home">
-          <img class="brand__mark" src="assets/img/logo-icon.svg" alt="Loru Player" width="34" height="34" decoding="async" />
+          <img class="brand__mark" src="assets/img/logo.png" alt="Loru Player" width="34" height="34"
+               decoding="async" onerror="this.onerror=null;this.src='assets/img/logo-icon.svg'" />
         </a>
       </div>
 
@@ -299,6 +303,17 @@ window.__loruErrors = [];
 
       <div class="lyrics" id="npLyrics" aria-live="polite">
         <div class="lyrics__scroll" id="npLyricsScroll"></div>
+      </div>
+
+      <!-- Shown when the browser refuses to start playback without a tap -->
+      <div class="gesture-gate" id="gestureGate" hidden>
+        <button class="play-btn play-btn--lg" id="gestureBtn" type="button" aria-label="Start playback">
+          <svg class="icon"><use href="#i-play"/></svg>
+        </button>
+        <div class="gesture-gate__text">
+          <strong>Tap to start</strong>
+          <span>Your browser blocks audio until you tap.</span>
+        </div>
       </div>
 
       <canvas class="np__viz" id="npViz" width="600" height="120" aria-hidden="true"></canvas>

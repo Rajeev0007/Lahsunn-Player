@@ -230,7 +230,7 @@
             if (backend !== 'youtube') return;
             const YTS = window.YT.PlayerState;
             if (e.data === YTS.PLAYING) {
-              store.set({ playing: true, loading: false });
+              store.set({ playing: true, loading: false, awaitingGesture: false });
               try { store.set({ duration: ytPlayer.getDuration() || 0 }); } catch (err) {}
             } else if (e.data === YTS.PAUSED) store.set({ playing: false, loading: false });
             else if (e.data === YTS.BUFFERING) store.set({ loading: true });
@@ -365,17 +365,20 @@
     try {
       if (isYouTube) {
         backend = 'youtube';
+        store.set({ backend });
         stopAllBackends('youtube');
         const p = await ensureYouTube();
-        showYouTubeSurface(true);
         p.loadVideoById({ videoId: ytVideoId, startSeconds: startAt });
+        try { p.playVideo(); } catch (e) {}
         if (!autoplay) setTimeout(() => { try { p.pauseVideo(); } catch (e) {} }, 350);
         startTicker();
+        if (autoplay) watchForBlockedAutoplay(token);
         return;
       }
 
       if (isSpotifyNative) {
         backend = 'spotify';
+        store.set({ backend });
         stopAllBackends('spotify');
         await spotify.sdk.ensurePlayer({
           onState: (s) => {
@@ -399,6 +402,7 @@
 
       if (isDemo) {
         backend = 'demo';
+        store.set({ backend });
         stopAllBackends('demo');
         store.set({ duration: playable.duration || 200, loading: false });
         if (autoplay) { synth.start(playable, startAt); store.set({ playing: true }); }
@@ -412,6 +416,7 @@
       if (!src) throw new Error('No stream available for this track.');
 
       backend = 'audio';
+      store.set({ backend });
       stopAllBackends('audio');
       const host = hostOf(src);
       const wantCors = store.state.settings.showVisualizer && !noCorsHosts.has(host);
@@ -439,6 +444,51 @@
       store.set({ loading: false, playing: false });
       toast({ kind: 'error', title: 'Playback problem', text: err.message || String(err) });
     }
+  }
+
+  /**
+   * Mobile browsers only allow media to start from a real user gesture, and
+   * the gesture is spent by the time an awaited promise chain resolves. If the
+   * video has not actually started shortly after loading, surface a tap target
+   * instead of silently sitting at 0:00 with a pause icon showing.
+   */
+  function watchForBlockedAutoplay(token) {
+    setTimeout(() => {
+      if (token !== pendingTrackToken || backend !== 'youtube') return;
+      let state = -1;
+      let time = 0;
+      try { state = ytPlayer.getPlayerState(); time = ytPlayer.getCurrentTime() || 0; } catch (e) {}
+      const YTS = window.YT && window.YT.PlayerState;
+      const reallyPlaying = YTS && state === YTS.PLAYING && time > 0.15;
+      if (!reallyPlaying) {
+        store.set({ awaitingGesture: true, playing: false, loading: false });
+      }
+    }, 2200);
+  }
+
+  /** Called straight from a click/tap handler, so the gesture is still valid. */
+  function resumeFromGesture() {
+    store.set({ awaitingGesture: false });
+    if (backend === 'youtube' && ytPlayer) {
+      try {
+        ytPlayer.unMute();
+        ytPlayer.setVolume(Math.round((store.state.muted ? 0 : store.state.volume) * 100));
+        ytPlayer.playVideo();
+      } catch (e) {}
+      startTicker();
+      return;
+    }
+    play();
+  }
+
+  /**
+   * Loads the YouTube API ahead of the first play. Without this the very first
+   * tap spends its gesture waiting on a network round-trip for the player
+   * script, and playback is refused.
+   */
+  function prewarmYouTube() {
+    if (ytReadyPromise || ytPlayer) return;
+    ensureYouTube().catch(() => { /* offline or blocked; normal load will report */ });
   }
 
   /* ---------------- public transport ---------------- */
@@ -615,7 +665,7 @@
     stopAllBackends(null);
     stopTicker();
     backend = 'none';
-    store.set({ playing: false, position: 0, duration: 0, index: -1, queue: [], queueOrigin: [] });
+    store.set({ backend, playing: false, position: 0, duration: 0, index: -1, queue: [], queueOrigin: [] });
   }
 
   function setShuffle(on) {
@@ -702,6 +752,27 @@
     store.on('playing', (p) => {
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = p ? 'playing' : 'paused';
     });
+
+    /* HTML5 audio keeps going when the tab is hidden, so nothing to do there.
+       YouTube's embed is required to pause; when the user comes back, offer to
+       resume rather than leaving them looking at a stalled player. */
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (backend !== 'youtube' || !ytPlayer) return;
+      if (!store.state.playing) return;
+      try {
+        const YTS = window.YT && window.YT.PlayerState;
+        if (YTS && ytPlayer.getPlayerState() === YTS.PAUSED) {
+          store.set({ playing: false });
+          toast({
+            title: 'Paused by YouTube',
+            text: 'YouTube stops playback when the tab is hidden.',
+            action: { label: 'Resume', onClick: () => { try { ytPlayer.playVideo(); } catch (e) {} } },
+            timeout: 6000,
+          });
+        }
+      } catch (e) {}
+    });
   }
 
   function updateMediaSession() {
@@ -723,7 +794,7 @@
     playCollection, playTrack, addToQueue, addManyToQueue,
     removeFromQueue, moveInQueue, clearQueue,
     setShuffle, cycleRepeat, next, prev,
-    showYouTubeSurface,
+    showYouTubeSurface, resumeFromGesture, prewarmYouTube,
     get backend() { return backend; },
     get analyser() { return analyser; },
     get audioEl() { return audioEl; },

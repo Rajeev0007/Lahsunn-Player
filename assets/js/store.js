@@ -59,6 +59,8 @@
     device: 'desktop',     // phone | tablet | desktop
     touch: false,
     standalone: false,
+    backend: 'none',       // none | audio | youtube | spotify | demo
+    awaitingGesture: false, // mobile blocked autoplay; needs a real tap
     queueOpen: false,
     npOpen: false,
     sidebarCollapsed: false,

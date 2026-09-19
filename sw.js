@@ -11,7 +11,13 @@
                     Audius traffic is never cached or delayed
    ============================================================ */
 
-const VERSION = 'loru-v1';
+const VERSION = 'loru-v2';
+
+/* Code must never be served stale: a cache-first CSS file paired with freshly
+   downloaded JS produces a half-broken UI (invisible panes, wrong layout).
+   HTML, CSS and JS therefore go network-first and only fall back to cache when
+   offline. Images and fonts stay cache-first, where staleness is harmless. */
+const CODE = /\.(html|css|js|webmanifest)$/i;
 const SHELL = [
   './',
   'index.html',
@@ -79,17 +85,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const store = (response) => {
+    if (response && response.ok) {
+      const copy = response.clone();
+      caches.open(VERSION).then((cache) => cache.put(request, copy)).catch(() => {});
+    }
+    return response;
+  };
+
+  if (CODE.test(url.pathname)) {
+    event.respondWith(
+      fetch(request).then(store).catch(() => caches.match(request)),
+    );
+    return;
+  }
+
+  // Images, icons, fonts: cache-first with a background refresh
   event.respondWith(
     caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(VERSION).then((cache) => cache.put(request, copy)).catch(() => {});
-          }
-          return response;
-        })
-        .catch(() => cached);
+      const network = fetch(request).then(store).catch(() => cached);
       return cached || network;
     }),
   );

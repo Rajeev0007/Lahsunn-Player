@@ -1267,7 +1267,8 @@
             onclick: () => { store.updateSettings({ defaultSource: id }); render(store.state.route, true); },
           }, label)))),
       toggleRow('Play Spotify tracks via YouTube', 'Without Premium, find the full song on YouTube instead of playing a 30-second preview.', 'preferYouTubeForSpotify'),
-      toggleRow('Prefer ad-free sources', 'Look on Audius before YouTube. Audius never serves ads, but it only carries independent artists — mainstream songs will often fall back to YouTube anyway.', 'adFreeFirst'),
+      toggleRow('Prefer ad-free sources', 'Look on Audius before YouTube. Audius never serves ads and keeps playing in the background, but it only carries independent artists — mainstream songs will often fall back to YouTube anyway.', 'adFreeFirst'),
+      backgroundRow(),
       toggleRow('Demo content', 'Fills the app with a sample catalogue that works with no connection.', 'demoMode', (on) => {
         on ? data.enableDemo() : data.disableDemo();
       }),
@@ -1437,6 +1438,42 @@
         desc ? el('div.setting-row__desc', { text: desc }) : null,
       ]),
       el('div.setting-row__control', control),
+    ]);
+  }
+
+  /**
+   * Background playback is decided by the browser and by each service, not by
+   * Loru, so this explains rather than promises.
+   */
+  function backgroundRow() {
+    const supported = [
+      ['Audius', true, 'Plays with the screen off'],
+      ['Direct links & radio', true, 'Plays with the screen off'],
+      ['Spotify previews', true, 'Plays with the screen off'],
+      ['YouTube', false, 'Pauses when you leave the tab'],
+    ];
+
+    return el('div', [
+      settingRow('Background playback', 'Which sources keep playing when you switch apps or lock the phone.',
+        el('span.status-pill', [el('i'), 'Depends on source'])),
+      el('div', { style: { paddingBottom: '14px' } }, [
+        ...supported.map(([name, ok, note]) => el('div.kbd-row', [
+          el('span', { text: name }),
+          el('span', {
+            style: { color: ok ? '#4ade80' : '#fbbf24', fontSize: 'var(--fs-xs)', flex: 'none' },
+            text: `${ok ? '✓' : '!'} ${note}`,
+          }),
+        ])),
+        el('div.callout.callout--warn', { style: { marginTop: '12px' } }, [
+          icon('info'),
+          el('div', [
+            el('strong', 'YouTube stops in the background by design. '),
+            'Its embedded player is required to pause when the page is hidden, and that restriction is what YouTube Premium lifts. Loru cannot override it without breaking YouTube’s terms. For uninterrupted background listening, turn on ',
+            el('strong', '“Prefer ad-free sources”'),
+            ' above so Audius is used when it has the track — or install Loru to your home screen, which keeps it alive longer on Android.',
+          ]),
+        ]),
+      ]),
     ]);
   }
 

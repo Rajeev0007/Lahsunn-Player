@@ -96,6 +96,16 @@
     store.on('loading', () => { syncPlaying(); });
     store.on(['position', 'duration'], syncProgress);
     store.on('position', syncLyricsPosition);
+    store.on('backend', applyNpMode);
+    store.on('awaitingGesture', syncGestureGate);
+
+    $('#gestureBtn').addEventListener('click', () => engine.resumeFromGesture());
+
+    // The first tap anywhere preloads the YouTube player, so the tap that
+    // actually starts a song isn't spent waiting for a network round-trip.
+    const prewarm = () => engine.prewarmYouTube();
+    window.addEventListener('pointerdown', prewarm, { once: true, passive: true });
+    window.addEventListener('keydown', prewarm, { once: true });
     store.on(['shuffle', 'repeat'], syncControls);
     store.on(['volume', 'muted'], syncVolume);
     store.on('liked', syncLike);
@@ -525,7 +535,7 @@
     const stage = $('#npStage');
     if (!stage) return;
 
-    const hasVideo = engine.backend === 'youtube';
+    const hasVideo = store.state.backend === 'youtube';
     const videoTab = $('#npModeVideo');
     if (videoTab) videoTab.hidden = !hasVideo;
 
@@ -539,6 +549,21 @@
 
     if (effective === 'art' && store.state.playing && store.state.npOpen) visualizer.start();
     else if (effective !== 'art') visualizer.stop();
+  }
+
+  function syncGestureGate() {
+    const waiting = store.state.awaitingGesture;
+    const gate = $('#gestureGate');
+    if (gate) gate.hidden = !waiting;
+    const bar = $('#playerbar');
+    if (bar) bar.dataset.gesture = waiting ? 'true' : 'false';
+    if (waiting && !store.state.npOpen) {
+      toast({
+        title: 'Tap play to start',
+        text: 'Mobile browsers block audio until you interact with the page.',
+        timeout: 5000,
+      });
+    }
   }
 
   function lyricsHost() { return $('#npLyricsScroll'); }

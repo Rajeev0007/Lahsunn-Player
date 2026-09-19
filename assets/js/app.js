@@ -326,11 +326,16 @@
       title: 'Welcome to Loru Player',
       desc: 'An online player — no files, no installs, no account.',
       body: [
-        el('img', {
-          src: 'assets/img/logo-full.svg', alt: 'Loru Player',
-          width: '260', height: '144',
-          style: { width: '230px', maxWidth: '70%', margin: '0 auto 4px', display: 'block' },
-        }),
+        (() => {
+          // Prefers a user-supplied logo.png, falling back to the bundled lockup
+          const img = el('img', {
+            src: 'assets/img/logo.png', alt: 'Loru Player',
+            width: '260', height: '144',
+            style: { width: '230px', maxWidth: '70%', margin: '0 auto 4px', display: 'block' },
+          });
+          img.onerror = () => { img.onerror = null; img.src = 'assets/img/logo-full.svg'; };
+          return img;
+        })(),
         el('div.opt-list', [
           optRow('wave', 'Start listening right away', 'Search or browse millions of free Audius tracks. Nothing to set up.', () => { modal.close(); navigate('#/search'); }),
           optRow('link', 'Bring your own playlists', 'Paste a YouTube playlist link, or connect Spotify to mirror yours.', () => { modal.close(); navigate('#/sources'); }),

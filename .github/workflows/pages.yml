@@ -1,10 +1,15 @@
 name: Deploy to GitHub Pages
 
 # Loru is static, so the whole repository is the artifact — no build step.
+#
+# Manual by default: most people deploy this on Vercel, Netlify or similar, and
+# a Pages workflow that runs on every push just fails repeatedly until Pages is
+# switched on. Run it from the Actions tab, or uncomment the push trigger below
+# to deploy to Pages automatically.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+  # push:
+  #   branches: [main]
 
 permissions:
   contents: read
@@ -24,7 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `enablement` turns Pages on if it isn't already, which avoids the
+      # "Get Pages site failed … Not Found" error on a fresh repository.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Upload site
         uses: actions/upload-pages-artifact@v3

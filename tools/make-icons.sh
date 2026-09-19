@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Renders PNG app icons and the social share image from the SVG logos.
-# PNG is required because PWA manifest icons and og:image are poorly
-# supported as SVG by app launchers and link scrapers.
+# Renders the PNG app icons and social share image from assets/img/logo.svg.
+#
+# There is one logo file. These PNGs are generated copies, not separate
+# artwork — iOS home-screen icons and link-preview images must be raster,
+# so they cannot simply reference the SVG.
+#
+# Replace logo.svg (or drop in a logo.png) and re-run this to refresh them.
 #
 #   ./tools/make-icons.sh
 set -uo pipefail
@@ -14,7 +18,7 @@ cd "$ROOT"
 python3 -m http.server "$PORT" --bind 127.0.0.1 > /tmp/icons-httpd.log 2>&1 &
 SERVER_PID=$!
 trap 'kill $SERVER_PID 2>/dev/null; rm -f "$ROOT/_icon-tmp.html" "$ROOT/_og-tmp.html"' EXIT
-for _ in $(seq 1 30); do curl -sf -o /dev/null "http://127.0.0.1:$PORT/assets/img/logo-icon.svg" && break; sleep 0.2; done
+for _ in $(seq 1 30); do curl -sf -o /dev/null "http://127.0.0.1:$PORT/assets/img/logo.svg" && break; sleep 0.2; done
 
 render_icon() {
   local size="$1" out="$2"
@@ -22,7 +26,7 @@ render_icon() {
 <!DOCTYPE html><html><head><meta charset="utf-8"><style>
   html,body{margin:0;padding:0;background:transparent}
   img{display:block;width:${size}px;height:${size}px}
-</style></head><body><img src="/assets/img/logo-icon.svg"></body></html>
+</style></head><body><img src="/assets/img/logo.svg"></body></html>
 EOF
   chrome --headless --no-sandbox --disable-gpu --no-proxy-server --hide-scrollbars \
     --default-background-color=00000000 --force-device-scale-factor=1 \
@@ -31,11 +35,10 @@ EOF
   echo "  $out (${size}x${size})"
 }
 
-echo "Icons:"
+echo "Icons (all derived from assets/img/logo.svg):"
 render_icon 192 icon-192.png
 render_icon 512 icon-512.png
 render_icon 180 apple-touch-icon.png
-render_icon 32  favicon-32.png
 
 # Social share card
 cat > "$ROOT/_og-tmp.html" <<'EOF'
@@ -49,14 +52,18 @@ cat > "$ROOT/_og-tmp.html" <<'EOF'
     display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;
     font-family:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;color:#f4f4f8;
   }
-  img{width:440px;display:block}
+  img{width:260px;display:block}
+  h1{margin:0;font-size:76px;font-weight:800;letter-spacing:-.02em;
+     background:linear-gradient(180deg,#f5f3ff,#c084fc 60%,#7c3aed);
+     -webkit-background-clip:text;background-clip:text;color:transparent}
   p{margin:0;font-size:31px;color:#b6b7c6;letter-spacing:-.01em;text-align:center;max-width:900px}
   .chips{display:flex;gap:14px;margin-top:6px}
   .chip{font-size:20px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
     padding:10px 20px;border-radius:999px;border:1px solid rgba(255,255,255,.16);
     background:rgba(255,255,255,.05);color:#ddd6fe}
 </style></head><body>
-  <img src="/assets/img/logo-full.svg">
+  <img src="/assets/img/logo.svg">
+  <h1>LORU PLAYER</h1>
   <p>Stream any song from YouTube, Spotify and Audius — no downloads, no account</p>
   <div class="chips"><span class="chip">YouTube</span><span class="chip">Spotify</span><span class="chip">Audius</span></div>
 </body></html>

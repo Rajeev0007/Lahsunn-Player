@@ -40,9 +40,9 @@ const SHELL = [
   'assets/js/ui/views.js',
   'assets/js/ui/player.js',
   'assets/js/app.js',
-  'assets/img/logo-icon.svg',
-  'assets/img/logo-mark.svg',
-  'assets/img/logo-full.svg',
+  'assets/img/logo.svg',
+  'assets/img/logo.svg',
+  'assets/img/logo.svg',
 ];
 
 self.addEventListener('install', (event) => {

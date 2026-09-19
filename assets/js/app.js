@@ -333,7 +333,7 @@
             width: '260', height: '144',
             style: { width: '230px', maxWidth: '70%', margin: '0 auto 4px', display: 'block' },
           });
-          img.onerror = () => { img.onerror = null; img.src = 'assets/img/logo-full.svg'; };
+          img.onerror = () => { img.onerror = null; img.src = 'assets/img/logo.svg'; };
           return img;
         })(),
         el('div.opt-list', [

@@ -237,26 +237,28 @@ synthetic waveform rather than going silent.
 
 ## Branding
 
-The logo ships as three SVG variants, because one drawing cannot serve every
-size:
+**There is one logo: `assets/img/logo.svg`.** It's used for the favicon, the
+sidebar, the topbar and the welcome screen.
 
-| File | Use |
-| --- | --- |
-| `assets/img/logo-icon.svg` | Favicon, sidebar, app icons. Simplified — the detailed mark turns to mush below ~48px. |
-| `assets/img/logo-mark.svg` | Detailed mark with the orbital ring and sparkles, for sizes above ~96px. |
-| `assets/img/logo-full.svg` | Full lockup with the LORU PLAYER wordmark, used on the welcome screen and share card. |
-
-PNG derivatives (`icon-192`, `icon-512`, `apple-touch-icon`, `favicon-32`,
-`og-image`) are generated from those SVGs — regenerate after any logo edit:
+Three PNGs sit beside it — `icon-192`, `icon-512`, `apple-touch-icon` — plus
+`og-image` for link previews. These are **generated copies, not separate
+artwork**: iOS home-screen icons and social scrapers require raster images and
+cannot use an SVG. Regenerate them after any logo change:
 
 ```bash
 tools/make-icons.sh
 ```
 
-**Using different artwork:** replace the SVGs and re-run that script. If you only
-have a raster logo, save it as `assets/img/logo-icon.svg`'s replacement in PNG
-form and update the references in `index.html`. Export with a **transparent
-background** — a white-backed logo shows as a white box against the dark UI.
+**Using your own logo:** either replace `logo.svg`, or drop a
+`assets/img/logo.png` into the folder — the app prefers `logo.png` automatically
+and falls back to the SVG, so no code changes are needed. Then run the script
+above to refresh the PNGs.
+
+Export with a **transparent background**. A white-backed logo will show as a
+white box against the dark interface.
+
+Note that a detailed logo loses definition at favicon size (16–32px). If yours
+looks muddy there, simplify a copy for small use.
 
 The default accent ramp in `theme.css` is sampled from the logo (violet →
 fuchsia), so the interface and the mark stay in step.

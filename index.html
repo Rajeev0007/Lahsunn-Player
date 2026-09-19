@@ -283,11 +283,24 @@ window.__loruErrors = [];
       <button class="icon-btn" id="npQueueBtn" aria-label="Show queue"><svg class="icon"><use href="#i-queue"/></svg></button>
     </header>
 
-    <div class="np__stage">
+    <div class="np__modes">
+      <div class="tabs" role="tablist" aria-label="Now playing view">
+        <button class="tabs__btn is-active" data-npmode="lyrics" role="tab">Lyrics</button>
+        <button class="tabs__btn" data-npmode="art" role="tab">Artwork</button>
+        <button class="tabs__btn" data-npmode="video" role="tab" hidden id="npModeVideo">Video</button>
+      </div>
+    </div>
+
+    <div class="np__stage" id="npStage" data-mode="lyrics">
       <div class="np__art art">
         <img alt="" id="npArtImg" />
         <span class="art__placeholder"><svg class="icon"><use href="#i-wave"/></svg></span>
       </div>
+
+      <div class="lyrics" id="npLyrics" aria-live="polite">
+        <div class="lyrics__scroll" id="npLyricsScroll"></div>
+      </div>
+
       <canvas class="np__viz" id="npViz" width="600" height="120" aria-hidden="true"></canvas>
     </div>
 
@@ -337,6 +350,7 @@ window.__loruErrors = [];
 <script defer src="assets/js/services/audius.js"></script>
 <script defer src="assets/js/services/youtube.js"></script>
 <script defer src="assets/js/services/spotify.js"></script>
+<script defer src="assets/js/services/lyrics.js"></script>
 <script defer src="assets/js/services/importer.js"></script>
 <script defer src="assets/js/engine.js"></script>
 <script defer src="assets/js/visualizer.js"></script>

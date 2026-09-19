@@ -10,6 +10,14 @@
   let seek, npSeek, vol;
   let queueTab = 'queue';
 
+  /* ---- lyrics state ---- */
+  let npMode = L.storage.get('npMode', 'lyrics');
+  let lyricsToken = 0;          // guards against out-of-order fetches
+  let lyricsData = null;        // { kind, lines, source }
+  let lyricsLineEls = [];
+  let lyricsActive = -1;
+  let userScrolledAt = 0;       // pauses auto-scroll after manual scrolling
+
   /* ============================================================
      Wiring
      ============================================================ */
@@ -80,12 +88,14 @@
     injectMobileControls();
 
     visualizer.attach($('#npViz'));
+    initLyrics();
 
     /* ---- store subscriptions ---- */
     store.on(['index', 'queue'], () => { syncTrack(); renderQueuePanel(); });
     store.on('playing', () => { syncPlaying(); });
     store.on('loading', () => { syncPlaying(); });
     store.on(['position', 'duration'], syncProgress);
+    store.on('position', syncLyricsPosition);
     store.on(['shuffle', 'repeat'], syncControls);
     store.on(['volume', 'muted'], syncVolume);
     store.on('liked', syncLike);
@@ -182,7 +192,9 @@
     syncLike();
     syncContext();
     refreshTrackHighlights();
-    engine.showYouTubeSurface(engine.backend === 'youtube');
+    applyNpMode();
+    if (store.state.npOpen) loadLyrics(t);
+    else { lyricsData = null; lyricsToken += 1; }
   }
 
   function syncContext() {
@@ -213,8 +225,10 @@
     $('#pbArt').classList.toggle('is-playing', playing);
     $('#npSheet').dataset.playing = playing ? 'true' : 'false';
 
-    if (store.state.npOpen && playing) visualizer.start();
-    if (!playing && !store.state.npOpen) visualizer.stop();
+    const stage = $('#npStage');
+    const artMode = !stage || stage.dataset.mode === 'art';
+    if (store.state.npOpen && playing && artMode) visualizer.start();
+    if (!playing || !store.state.npOpen || !artMode) visualizer.stop();
 
     refreshTrackHighlights();
   }
@@ -436,8 +450,8 @@
     sheet.setAttribute('aria-hidden', 'false');
     store.set({ npOpen: true });
     document.body.style.overflow = 'hidden';
-    if (engine.backend === 'youtube') engine.showYouTubeSurface(true);
-    if (store.state.settings.showVisualizer) setTimeout(() => visualizer.start(), 120);
+    applyNpMode();
+    loadLyrics(store.currentTrack());
     setTimeout(() => $('#npClose') && $('#npClose').focus(), 400);
   }
 
@@ -481,8 +495,172 @@
     });
   }
 
+  /* ============================================================
+     Lyrics
+     ============================================================ */
+  function initLyrics() {
+    $$('.tabs__btn[data-npmode]').forEach((btn) => {
+      btn.addEventListener('click', () => setNpMode(btn.dataset.npmode));
+    });
+
+    const scroll = $('#npLyricsScroll');
+    if (scroll) {
+      // Manual scrolling wins for a few seconds before auto-follow resumes
+      ['wheel', 'touchmove', 'pointerdown'].forEach((evt) => {
+        scroll.addEventListener(evt, () => { userScrolledAt = Date.now(); }, { passive: true });
+      });
+    }
+
+    applyNpMode();
+  }
+
+  function setNpMode(mode) {
+    npMode = mode;
+    L.storage.set('npMode', mode);
+    applyNpMode();
+    if (mode === 'lyrics') loadLyrics(store.currentTrack());
+  }
+
+  function applyNpMode() {
+    const stage = $('#npStage');
+    if (!stage) return;
+
+    const hasVideo = engine.backend === 'youtube';
+    const videoTab = $('#npModeVideo');
+    if (videoTab) videoTab.hidden = !hasVideo;
+
+    // Fall back out of video mode when the current track isn't a video
+    const effective = (npMode === 'video' && !hasVideo) ? 'lyrics' : npMode;
+    stage.dataset.mode = effective;
+
+    $$('.tabs__btn[data-npmode]').forEach((b) => b.classList.toggle('is-active', b.dataset.npmode === effective));
+
+    engine.showYouTubeSurface(hasVideo && effective === 'video');
+
+    if (effective === 'art' && store.state.playing && store.state.npOpen) visualizer.start();
+    else if (effective !== 'art') visualizer.stop();
+  }
+
+  function lyricsHost() { return $('#npLyricsScroll'); }
+
+  function renderLyricsState(nodes) {
+    const host = lyricsHost();
+    if (!host) return;
+    host.replaceChildren(...(Array.isArray(nodes) ? nodes : [nodes]));
+    lyricsLineEls = [];
+    lyricsActive = -1;
+  }
+
+  async function loadLyrics(track) {
+    const host = lyricsHost();
+    if (!host) return;
+    const token = ++lyricsToken;
+    lyricsData = null;
+
+    if (!track) {
+      renderLyricsState(el('div.lyrics__state', [icon('wave'), el('div', 'Play something to see its lyrics.')]));
+      return;
+    }
+
+    if (npMode !== 'lyrics') return;   // don't fetch for a hidden pane
+
+    renderLyricsState(el('div.lyrics__skeleton', [
+      el('span', { style: { width: '70%' } }), el('span', { style: { width: '54%' } }),
+      el('span', { style: { width: '64%' } }), el('span', { style: { width: '44%' } }),
+      el('span', { style: { width: '60%' } }),
+    ]));
+
+    let result;
+    try {
+      result = await L.lyrics.get(track);
+    } catch (err) {
+      if (token !== lyricsToken) return;
+      renderLyricsState(el('div.lyrics__state', [
+        icon('info'),
+        el('div', { text: err.message }),
+        el('button.btn.btn--soft.btn--sm', { type: 'button', onclick: () => loadLyrics(store.currentTrack()) }, 'Retry'),
+      ]));
+      return;
+    }
+
+    if (token !== lyricsToken) return;
+
+    if (!result) {
+      renderLyricsState(el('div.lyrics__state', [
+        icon('search'),
+        el('div', { text: `No lyrics found for “${track.title}”.` }),
+        el('div', { style: { fontSize: 'var(--fs-xs)', opacity: '.8' } },
+          'Loru matches on artist and title, so a remix or live version often has none.'),
+      ]));
+      return;
+    }
+
+    if (result.kind === 'instrumental') {
+      renderLyricsState(el('div.lyrics__state', [icon('wave'), el('div', 'This track is instrumental.')]));
+      return;
+    }
+
+    lyricsData = result;
+    const synced = result.kind === 'synced';
+    const pane = $('#npLyrics');
+    if (pane) pane.classList.toggle('lyrics--plain', !synced);
+
+    const host2 = lyricsHost();
+    const lines = result.lines.map((line, i) => {
+      if (!line.text) return el('div.lyrics__line.lyrics__line--blank');
+      const node = el('div.lyrics__line', { text: line.text });
+      if (synced) {
+        node.title = 'Jump to this line';
+        node.addEventListener('click', () => {
+          const dur = store.state.duration || 0;
+          if (dur) engine.seekTo(line.time / dur);
+        });
+      }
+      return node;
+    });
+
+    host2.replaceChildren(...lines);
+    lyricsLineEls = lines;
+    lyricsActive = -1;
+
+    if (result.source) {
+      const credit = el('div.lyrics__credit', { text: `Lyrics via ${result.source}` });
+      const wrap = $('#npLyrics');
+      const existing = wrap.querySelector('.lyrics__credit');
+      if (existing) existing.remove();
+      wrap.appendChild(credit);
+    }
+
+    syncLyricsPosition();
+  }
+
+  function syncLyricsPosition() {
+    if (!lyricsData || lyricsData.kind !== 'synced' || !store.state.npOpen) return;
+    if ($('#npStage') && $('#npStage').dataset.mode !== 'lyrics') return;
+
+    const index = L.lyrics.activeIndex(lyricsData.lines, store.state.position + 0.25);
+    if (index === lyricsActive) return;
+    lyricsActive = index;
+
+    lyricsLineEls.forEach((node, i) => {
+      if (!node || node.classList.contains('lyrics__line--blank')) return;
+      node.classList.toggle('is-active', i === index);
+      node.classList.toggle('is-past', i < index);
+    });
+
+    const current = lyricsLineEls[index];
+    if (!current) return;
+    // Respect a recent manual scroll rather than yanking the view back
+    if (Date.now() - userScrolledAt < 4000) return;
+
+    const host = lyricsHost();
+    const target = current.offsetTop - (host.clientHeight / 2) + (current.offsetHeight / 2);
+    host.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+  }
+
   L.player = {
     init, toggleQueue, openNowPlaying, closeNowPlaying,
     renderQueuePanel, syncTrack, syncPlaying,
+    setNpMode, loadLyrics,
   };
 })(window.Loru);

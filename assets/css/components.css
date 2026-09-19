@@ -832,3 +832,112 @@
 .npq__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: var(--fs-sm); padding: 9px 0; border-bottom: 1px solid var(--border); }
 .npq__row span:first-child { color: var(--ink-3); }
 .npq__row span:last-child { text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+/* ─────────────────────────── Lyrics pane ─────────────────────────── */
+.np__modes { display: flex; justify-content: center; flex: none; }
+
+/* The stage shows one of: lyrics, artwork, or the YouTube surface. */
+.np__stage[data-mode="lyrics"] .np__art,
+.np__stage[data-mode="lyrics"] .np__viz,
+.np__stage[data-mode="video"] .np__art,
+.np__stage[data-mode="video"] .lyrics,
+.np__stage[data-mode="video"] .np__viz,
+.np__stage[data-mode="art"] .lyrics { display: none; }
+
+.lyrics {
+  position: relative;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  mask-image: linear-gradient(180deg, transparent, #000 12%, #000 86%, transparent);
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 12%, #000 86%, transparent);
+}
+.lyrics__scroll {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 12% 4px;
+  text-align: center;
+  scroll-behavior: smooth;
+}
+.lyrics__scroll::-webkit-scrollbar { display: none; }
+
+.lyrics__line {
+  font-family: var(--font-display);
+  font-size: clamp(1.05rem, .9rem + 1.1vw, 1.5rem);
+  font-weight: 700;
+  line-height: 1.34;
+  letter-spacing: -.015em;
+  padding: 7px 6px;
+  color: color-mix(in oklab, var(--ink) 38%, transparent);
+  transition: color var(--t) var(--ease), transform var(--t) var(--ease), filter var(--t);
+  transform-origin: center;
+  cursor: pointer;
+  border-radius: 10px;
+}
+.lyrics__line:hover { color: color-mix(in oklab, var(--ink) 70%, transparent); background: var(--surface); }
+.lyrics__line--blank { height: 12px; padding: 0; }
+.lyrics__line.is-active {
+  color: var(--ink);
+  transform: scale(1.04);
+  text-shadow: 0 2px 22px color-mix(in oklab, var(--accent-1) 45%, transparent);
+}
+.lyrics__line.is-past { color: color-mix(in oklab, var(--ink) 26%, transparent); }
+/* Unsynced lyrics have no active line, so keep them evenly readable */
+.lyrics--plain .lyrics__line { color: color-mix(in oklab, var(--ink) 74%, transparent); font-size: 1rem; font-weight: 600; }
+
+.lyrics__state {
+  margin: auto;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  text-align: center; padding: 18px;
+  color: var(--ink-3); font-size: var(--fs-sm);
+  max-width: 34ch;
+}
+.lyrics__state .icon { width: 30px; height: 30px; color: var(--accent-1); }
+.lyrics__credit {
+  position: absolute; bottom: 2px; left: 0; right: 0;
+  text-align: center; font-size: var(--fs-xs); color: var(--ink-3); opacity: .75;
+}
+.lyrics__skeleton { display: flex; flex-direction: column; gap: 14px; align-items: center; width: 100%; padding: 14% 0; }
+.lyrics__skeleton span { height: 15px; border-radius: 8px; background: var(--skeleton); background-size: 400% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+
+@media (max-width: 768px) {
+  .lyrics__line { font-size: clamp(1rem, .92rem + 1.4vw, 1.3rem); }
+}
+
+
+/* ─────────────── Device-aware refinements ───────────────
+   Keyed off the flags app.js puts on <html>, so these react to the
+   actual input device rather than guessing from viewport width. */
+
+/* Touch: no hover states to rely on, so controls stay visible and
+   hit targets grow to a comfortable minimum. */
+[data-pointer="touch"] .track__actions .icon-btn,
+[data-pointer="touch"] .qrow__x,
+[data-pointer="touch"] .qrow__grip,
+[data-pointer="touch"] .card__play,
+[data-pointer="touch"] .tile__play { opacity: 1; }
+
+[data-pointer="touch"] .icon-btn { width: 42px; height: 42px; }
+[data-pointer="touch"] .icon-btn--sm { width: 36px; height: 36px; }
+[data-pointer="touch"] .track { padding-block: 11px; }
+[data-pointer="touch"] .lyrics__line { padding-block: 10px; }
+[data-pointer="touch"] .slider { padding-block: 11px; }   /* easier to grab */
+[data-pointer="touch"] .slider__thumb { opacity: 1; width: 14px; height: 14px; }
+
+/* Installed as an app: no browser chrome, so respect the status bar. */
+[data-standalone="true"] .topbar { padding-top: env(safe-area-inset-top); height: calc(var(--topbar-h) + env(safe-area-inset-top)); }
+[data-standalone="true"] .np__inner { padding-top: max(20px, env(safe-area-inset-top)); }
+
+/* Landscape phones: the sheet becomes two columns so controls stay reachable. */
+[data-short-screen="true"] .np__inner { padding-block: 10px; }
+[data-short-screen="true"] .np__modes { display: none; }
+[data-short-screen="true"] .np__stage { flex-direction: row; gap: 18px; }
+[data-short-screen="true"] .np__stage[data-mode="lyrics"] .lyrics { max-width: 60%; }
+[data-short-screen="true"] .np__titles h2 { font-size: 1.05rem; }
+
+/* Phones: lyrics get the full stage height since there is no artwork beside them. */
+[data-device="phone"] .lyrics__scroll { padding-block: 18%; }

@@ -266,6 +266,59 @@ One deliberate constraint: entry animations only animate `transform`, never
 `opacity`. Fading content in from invisible means any environment that fails to
 run the animation renders a blank page.
 
+## Lyrics
+
+The full-screen player has a segmented control: **Lyrics · Artwork · Video**
+(Video appears only when a YouTube track is playing). Lyrics come from
+[LRCLIB](https://lrclib.net), a free public API with no key.
+
+- Time-synced lyrics highlight the current line and auto-scroll. Tap any line to
+  seek to it.
+- Manual scrolling pauses auto-follow for four seconds so the view doesn't fight
+  you.
+- Unsynced lyrics render as plain text; instrumentals say so.
+
+Matching is on artist + title + duration. Loru cleans up YouTube titles first —
+`Artist - Song (Official Video) [4K]` on a `- Topic` channel becomes
+artist `Artist`, track `Song` — but remixes, live versions and mashups often
+have no entry. Lyrics are fetched at runtime and cached for the session only;
+none are bundled with the app.
+
+## Ads
+
+**Loru does not block ads, and deliberately so.** YouTube playback runs through
+the official embedded player, which means ads play exactly as YouTube serves
+them and creators get paid. Removing them would mean proxying or extracting
+streams, which breaks YouTube's terms, breaks constantly in practice, and takes
+money from artists.
+
+What you can do instead:
+
+| Source | Ads | Catalogue |
+| --- | --- | --- |
+| **Audius** | Never | Independent artists only |
+| **Spotify previews** | Never | 30 seconds |
+| **Direct URLs / radio** | Never | Whatever you point it at |
+| **YouTube** | Yes, as served | Effectively everything |
+
+**Settings → Playback → Prefer ad-free sources** makes Loru look on Audius before
+YouTube. Mainstream songs will usually still fall back to YouTube, because they
+simply aren't on Audius. If you want the whole catalogue without ads, YouTube
+Premium is the only legitimate route, and it works with Loru automatically.
+
+## Device adaptation
+
+`app.js` puts capability flags on `<html>` rather than relying on width alone,
+because a touch laptop and a tablet can report identical widths:
+
+| Attribute | Values | Effect |
+| --- | --- | --- |
+| `data-device` | `phone` · `tablet` · `desktop` | Layout tier |
+| `data-pointer` | `touch` · `mouse` | Touch grows hit targets to ~42px and keeps row actions visible, since there is no hover |
+| `data-orientation` | `portrait` · `landscape` | — |
+| `data-short-screen` | `true` on landscape phones | Now-playing switches to a two-column layout |
+| `data-standalone` | `true` when installed as a PWA | Adds status-bar padding |
+
 ## Development helpers
 
 `tools/` contains scripts used to verify rendering in headless Chrome:

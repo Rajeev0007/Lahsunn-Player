@@ -1267,6 +1267,7 @@
             onclick: () => { store.updateSettings({ defaultSource: id }); render(store.state.route, true); },
           }, label)))),
       toggleRow('Play Spotify tracks via YouTube', 'Without Premium, find the full song on YouTube instead of playing a 30-second preview.', 'preferYouTubeForSpotify'),
+      toggleRow('Prefer ad-free sources', 'Look on Audius before YouTube. Audius never serves ads, but it only carries independent artists — mainstream songs will often fall back to YouTube anyway.', 'adFreeFirst'),
       toggleRow('Demo content', 'Fills the app with a sample catalogue that works with no connection.', 'demoMode', (on) => {
         on ? data.enableDemo() : data.disableDemo();
       }),

@@ -19,6 +19,7 @@
     youtubeApiKey: '',
     youtubeMirror: '',
     defaultSource: 'youtube',
+    adFreeFirst: false,
     demoMode: false,
     reduceData: false,
   };
@@ -55,6 +56,9 @@
 
     /* ui */
     settings: { ...defaultSettings },
+    device: 'desktop',     // phone | tablet | desktop
+    touch: false,
+    standalone: false,
     queueOpen: false,
     npOpen: false,
     sidebarCollapsed: false,

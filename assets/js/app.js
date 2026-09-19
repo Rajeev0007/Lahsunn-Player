@@ -179,9 +179,12 @@
 
     // close the queue sheet when tapping the scrim area on mobile
     window.addEventListener('resize', debounce(() => {
+      detectDevice();
       if (!window.matchMedia('(max-width: 768px)').matches) setDrawer(false);
       L.visualizer.resize();
     }, 200));
+
+    window.addEventListener('orientationchange', () => setTimeout(detectDevice, 120));
 
     window.addEventListener('online', () => {
       toast({ kind: 'success', title: 'Back online', text: 'Streaming services are reachable again.' });
@@ -361,6 +364,7 @@
      ============================================================ */
   async function boot() {
     /* theme + chrome state from persisted settings */
+    detectDevice();
     setTheme(store.state.settings.theme);
     setAccent(store.state.settings.accent);
     setSidebarCollapsed(store.state.sidebarCollapsed);
@@ -411,6 +415,44 @@
 
     document.body.classList.add('is-ready');
     registerServiceWorker();
+  }
+
+  /* ============================================================
+     Device detection
+     ------------------------------------------------------------
+     Width alone is a poor signal: a touch laptop and a tablet can
+     report the same width but want different hit targets, and an
+     installed PWA needs different chrome than a browser tab. These
+     flags land on <html> so CSS and JS can both key off them.
+     ============================================================ */
+  function detectDevice() {
+    const root = document.documentElement;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    const noHover = window.matchMedia('(hover: none)').matches;
+    const touch = coarse || noHover || navigator.maxTouchPoints > 0;
+
+    let kind;
+    if (w <= 768) kind = 'phone';
+    else if (w <= 1024 || (touch && w <= 1366)) kind = 'tablet';
+    else kind = 'desktop';
+
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+      || window.navigator.standalone === true;
+
+    root.dataset.device = kind;
+    root.dataset.pointer = touch ? 'touch' : 'mouse';
+    root.dataset.orientation = w >= h ? 'landscape' : 'portrait';
+    if (standalone) root.dataset.standalone = 'true';
+    else delete root.dataset.standalone;
+
+    // Short landscape phones need the compact now-playing layout
+    root.dataset.shortScreen = (h <= 560 && w > h) ? 'true' : 'false';
+
+    store.set({ device: kind, touch, standalone });
+    return kind;
   }
 
   /** Caches the app shell so repeat loads are instant. */

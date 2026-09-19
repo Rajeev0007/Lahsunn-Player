@@ -211,29 +211,42 @@
     /* A full-length YouTube match beats a 30-second preview, so try it first.
        `videoId` is kept in a separate field so the track keeps its Spotify
        identity (and therefore its liked state) while playing from YouTube. */
-    if (store.state.settings.preferYouTubeForSpotify) {
+    const tryYouTube = async () => {
+      if (!store.state.settings.preferYouTubeForSpotify) return null;
       const yt = await youtube.findMatch(track.title, track.artist).catch(() => null);
-      if (yt) {
-        return {
-          track: {
-            ...track, playbackVia: 'youtube', matchedFrom: 'spotify',
-            ytVideoId: yt.videoId, duration: yt.duration || track.duration,
-          },
-          note: `Playing the full track from YouTube: “${yt.title}”.`,
-        };
-      }
-    }
+      if (!yt) return null;
+      return {
+        track: {
+          ...track, playbackVia: 'youtube', matchedFrom: 'spotify',
+          ytVideoId: yt.videoId, duration: yt.duration || track.duration,
+        },
+        note: `Playing the full track from YouTube: “${yt.title}”.`,
+      };
+    };
 
-    const match = await audius.findMatch(track.title, track.artist).catch(() => null);
-    if (match) {
+    const tryAudius = async () => {
+      const match = await audius.findMatch(track.title, track.artist).catch(() => null);
+      if (!match) return null;
       return {
         track: {
           ...track, playbackVia: 'audius', matchedFrom: 'spotify',
           streamUrl: match.streamUrl, audiusId: match.id,
           duration: match.duration || track.duration,
         },
-        note: `Streaming a close match from Audius: “${match.title}”.`,
+        note: `Streaming an ad-free match from Audius: “${match.title}”.`,
       };
+    };
+
+    /* Audius never serves ads, but its catalogue is independent artists
+       only. YouTube has everything and may play an ad first. The listener
+       chooses which trade-off they want. */
+    const order = store.state.settings.adFreeFirst
+      ? [tryAudius, tryYouTube]
+      : [tryYouTube, tryAudius];
+
+    for (const attempt of order) {
+      const resolved = await attempt();
+      if (resolved) return resolved;
     }
 
     /* Last resort before giving up: a 30-second preview is still better

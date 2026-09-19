@@ -293,7 +293,7 @@
 .np__context { text-align: center; min-width: 0; }
 .np__context small { display: block; font-size: var(--fs-xs); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
 .np__context strong { font-size: .84rem; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.np__stage { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+.np__stage { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; width: 100%; }
 /* Selector needs to beat the generic `.art { width: 100% }` rule */
 .np__stage .np__art {
   width: min(78vw, 44vh, 400px); flex: none;

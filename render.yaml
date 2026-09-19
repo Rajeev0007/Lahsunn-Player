@@ -1,0 +1,27 @@
+# Render — static site, no build step.
+services:
+  - type: web
+    name: loru-player
+    runtime: static
+    staticPublishPath: .
+    buildCommand: echo "Static site - nothing to build"
+    pullRequestPreviewsEnabled: true
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /sw.js
+        name: Cache-Control
+        value: public, max-age=0, must-revalidate
+      - path: /assets/js/*
+        name: Cache-Control
+        value: public, max-age=0, must-revalidate
+      - path: /assets/css/*
+        name: Cache-Control
+        value: public, max-age=0, must-revalidate
+      - path: /assets/img/*
+        name: Cache-Control
+        value: public, max-age=604800, must-revalidate

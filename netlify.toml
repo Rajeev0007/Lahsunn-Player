@@ -1,0 +1,39 @@
+# Netlify — static, no build step.
+[build]
+  publish = "."
+  command = "echo 'Static site - nothing to build'"
+
+[build.environment]
+  NETLIFY_USE_YARN = "false"
+
+# Routing is hash-based (#/library), so no SPA redirect rule is needed.
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), camera=(), microphone=()"
+
+# Code must never be stale: a cached stylesheet paired with fresh JS
+# produces a half-broken interface.
+[[headers]]
+  for = "/assets/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/assets/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/assets/img/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800, must-revalidate"

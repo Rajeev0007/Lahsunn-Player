@@ -62,8 +62,13 @@ python3 -m http.server 4173
 # then open http://127.0.0.1:4173/index.html
 ```
 
-Any static host works: Vercel, GitHub Pages, Netlify, S3, nginx. Upload the
-folder as-is.
+Any static host works — Vercel, Netlify, Cloudflare Pages, GitHub Pages,
+Firebase, Render, or your own nginx. Config for each is committed, and the app
+runs from a domain root or a subdirectory equally well.
+
+**See [DEPLOY.md](DEPLOY.md)** for one-liners per platform, the caching rules
+that matter, and the fix for a `vite: command not found` build error inherited
+from a previously connected project.
 
 ## Deploying to Vercel
 

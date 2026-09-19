@@ -1,0 +1,2 @@
+GitHub Pages runs Jekyll by default, which ignores files and folders beginning
+with an underscore (such as _headers). This empty marker disables that.

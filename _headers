@@ -1,0 +1,21 @@
+# Cloudflare Pages / Netlify header rules.
+# Kept in sync with vercel.json and netlify.toml.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), camera=(), microphone=()
+
+# Never serve stale code: mismatched CSS and JS versions break the UI.
+/assets/css/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+/assets/js/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+  Service-Worker-Allowed: /
+
+/assets/img/*
+  Cache-Control: public, max-age=604800, must-revalidate

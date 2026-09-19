@@ -261,9 +261,15 @@
     { kind: 'piped', base: 'https://pipedapi.kavin.rocks' },
     { kind: 'piped', base: 'https://api.piped.private.coffee' },
     { kind: 'piped', base: 'https://pipedapi.adminforge.de' },
+    { kind: 'piped', base: 'https://pipedapi.drgns.space' },
+    { kind: 'piped', base: 'https://pipedapi.ducks.party' },
+    { kind: 'piped', base: 'https://api.piped.yt' },
     { kind: 'invidious', base: 'https://inv.nadeko.net' },
     { kind: 'invidious', base: 'https://invidious.nerdvpn.de' },
     { kind: 'invidious', base: 'https://invidious.fdn.fr' },
+    { kind: 'invidious', base: 'https://invidious.privacyredirect.com' },
+    { kind: 'invidious', base: 'https://iv.melmac.space' },
+    { kind: 'invidious', base: 'https://invidious.f5.si' },
   ];
 
   const MIRROR_KEY = 'yt:mirror';
@@ -411,42 +417,121 @@
       .slice(0, limit);
   }
 
+  /**
+   * Races a batch of mirrors and resolves with the first non-empty result.
+   * Querying them one at a time would stack every timeout, so a dead list
+   * could take well over a minute before reporting failure.
+   */
+  function raceMirrors(batch, query, limit, tried) {
+    return new Promise((resolve, reject) => {
+      let pending = batch.length;
+      let settled = false;
+      if (!pending) { reject(new Error('no mirrors')); return; }
+
+      const fail = (mirror, reason) => {
+        tried.push(`${mirror.base} — ${reason}`);
+        pending -= 1;
+        if (pending === 0 && !settled) reject(new Error('batch exhausted'));
+      };
+
+      batch.forEach((mirror) => {
+        searchOneMirror(mirror, query, limit)
+          .then((results) => {
+            if (settled) return;
+            if (results && results.length) {
+              settled = true;
+              L.storage.set(MIRROR_KEY, { kind: mirror.kind, base: mirror.base });
+              resolve(results);
+            } else {
+              fail(mirror, 'no results');
+            }
+          })
+          .catch((err) => { if (!settled) fail(mirror, err.message); });
+      });
+    });
+  }
+
   async function searchViaMirrors(query, limit) {
+    const all = mirrorList();
     const tried = [];
-    for (const mirror of mirrorList()) {
+    const BATCH = 5;
+
+    for (let i = 0; i < all.length; i += BATCH) {
       try {
-        const results = await searchOneMirror(mirror, query, limit);
-        if (results.length) {
-          L.storage.set(MIRROR_KEY, { kind: mirror.kind, base: mirror.base });
-          return results;
-        }
-        tried.push(`${mirror.base} (no results)`);
-      } catch (err) {
-        tried.push(`${mirror.base} (${err.message})`);
-      }
+        return await raceMirrors(all.slice(i, i + BATCH), query, limit, tried);
+      } catch (e) { /* whole batch failed, try the next */ }
     }
-    const e = new Error('No YouTube metadata service responded. They are community-run and go offline often — add your own API key or mirror in Settings.');
+
+    const e = new Error('No YouTube metadata service responded. These are community-run and go offline often — adding your own API key in Settings makes search reliable.');
     e.code = 'yt-mirrors';
     e.tried = tried;
     throw e;
   }
 
   /**
+   * Diagnostic for Settings: reports which search sources actually work,
+   * so a dead mirror list can be identified without guesswork.
+   */
+  async function testSources() {
+    const out = [];
+
+    if (apiKey()) {
+      const started = Date.now();
+      try {
+        const r = await searchViaApi('music', 1);
+        out.push({ label: 'Official YouTube API key', ok: true, detail: `${r.length} result${r.length === 1 ? '' : 's'} · ${Date.now() - started}ms` });
+      } catch (err) {
+        out.push({ label: 'Official YouTube API key', ok: false, detail: err.message });
+      }
+    } else {
+      out.push({ label: 'Official YouTube API key', ok: null, detail: 'Not set — using public mirrors' });
+    }
+
+    const checks = await Promise.all(mirrorList().map(async (mirror) => {
+      const started = Date.now();
+      try {
+        const r = await searchOneMirror(mirror, 'music', 1);
+        return r.length
+          ? { label: mirror.base, ok: true, detail: `${Date.now() - started}ms` }
+          : { label: mirror.base, ok: false, detail: 'responded but returned nothing' };
+      } catch (err) {
+        return { label: mirror.base, ok: false, detail: err.message };
+      }
+    }));
+
+    return out.concat(checks);
+  }
+
+  /**
    * Search YouTube for songs.
    * @returns {Promise<Array>} normalized, playable tracks
    */
-  async function search(query, { limit = 24 } = {}) {
+  async function search(query, { limit = 24, fresh = false } = {}) {
     const q = String(query || '').trim();
     if (!q) return [];
+
+    // Repeat searches are common (navigating back, retrying); caching them for
+    // the session keeps the API key's 100-a-day quota for genuinely new queries.
+    const cacheKey = 'ytsearch:' + q.toLowerCase();
+    if (!fresh) {
+      const cached = L.storage.session.get(cacheKey, null);
+      if (cached && cached.length) return cached;
+    }
+
+    let results;
     if (apiKey()) {
       try {
-        return await searchViaApi(q, limit);
+        results = await searchViaApi(q, limit);
       } catch (err) {
-        if (err.code === 'yt-key') throw err;   // surface key problems
-        return searchViaMirrors(q, limit);      // network hiccup: fall back
+        if (err.code === 'yt-key') throw err;        // key problems must surface
+        results = await searchViaMirrors(q, limit);  // transient: fall back
       }
+    } else {
+      results = await searchViaMirrors(q, limit);
     }
-    return searchViaMirrors(q, limit);
+
+    if (results && results.length) L.storage.session.set(cacheKey, results);
+    return results;
   }
 
   /** Best single match for a title/artist — used to make Spotify tracks playable. */
@@ -460,6 +545,6 @@
   L.youtube = {
     parse, thumb, watchUrl, ensureApi, fetchMeta, cleanTitle, toTrack,
     resolvePlaylist, resolveVideo, hydrateTracks, searchUrl,
-    search, findMatch, mirrorList, DEFAULT_MIRRORS,
+    search, findMatch, mirrorList, testSources, DEFAULT_MIRRORS,
   };
 })(window.Loru);

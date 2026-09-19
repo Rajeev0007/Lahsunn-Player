@@ -1225,6 +1225,7 @@
           href: 'https://console.cloud.google.com/apis/library/youtube.googleapis.com',
           target: '_blank', rel: 'noopener',
         }, [icon('globe'), 'Google Cloud'])),
+      diagnosticsRow(),
     ])));
 
     /* spotify */
@@ -1283,6 +1284,63 @@
     ])));
 
     return view;
+  }
+
+  /**
+   * Runs a live check against every search source and lists the outcome.
+   * Public mirrors rot over time, so this is how a user works out whether
+   * search is broken because of them or because of their own key.
+   */
+  function diagnosticsRow() {
+    const output = el('div', { style: { display: 'none', marginTop: '12px' } });
+
+    const button = el('button.btn.btn--soft.btn--sm', { type: 'button' }, [icon('repeat'), 'Test sources']);
+
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      button.replaceChildren(icon('repeat'), document.createTextNode('Testing…'));
+      output.style.display = 'block';
+      output.replaceChildren(el('div.section__sub', 'Contacting each source, this can take a few seconds…'));
+
+      try {
+        const results = await youtube.testSources();
+        const working = results.filter((r) => r.ok).length;
+        output.replaceChildren(
+          el('div.kbd-row', { style: { borderBottom: '1px solid var(--border)', paddingBottom: '8px' } }, [
+            el('strong', { text: working ? `${working} source${working === 1 ? '' : 's'} working` : 'No sources responding' }),
+            el('span', {
+              style: { color: working ? '#4ade80' : '#f87171', fontWeight: '700', fontSize: 'var(--fs-xs)' },
+              text: working ? 'SEARCH SHOULD WORK' : 'SEARCH WILL FAIL',
+            }),
+          ]),
+          ...results.map((r) => el('div.kbd-row', [
+            el('span', { style: { wordBreak: 'break-all', fontSize: 'var(--fs-xs)', color: 'var(--ink-2)' }, text: r.label }),
+            el('span', {
+              style: {
+                flex: 'none',
+                color: r.ok === null ? 'var(--ink-3)' : r.ok ? '#4ade80' : '#f87171',
+                fontSize: 'var(--fs-xs)',
+              },
+              text: `${r.ok === null ? '—' : r.ok ? '✓' : '✕'} ${r.detail}`,
+            }),
+          ])),
+          !working ? el('div.callout.callout--warn', { style: { marginTop: '12px' } }, [
+            icon('info'),
+            el('div', 'Every public mirror is down or blocked. Add a YouTube Data API key above — that route does not depend on them.'),
+          ]) : null,
+        );
+      } catch (err) {
+        output.replaceChildren(ui.errorState(err.message));
+      }
+
+      button.disabled = false;
+      button.replaceChildren(icon('repeat'), document.createTextNode('Test again'));
+    });
+
+    return el('div', [
+      settingRow('Check what works', 'Contacts every search source and reports which ones respond.', button),
+      output,
+    ]);
   }
 
   function settingRow(title, desc, control) {

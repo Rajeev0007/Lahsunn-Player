@@ -16,13 +16,39 @@ service that hosts it.
 
 | Source | Setup needed | What you get |
 | --- | --- | --- |
-| **Audius** | none | Full-length streaming, search, trending, genre and mood mixes. Powers the browse experience out of the box. |
-| **YouTube** | none | Paste any public playlist, mix or video link. Plays through YouTube's official embedded player. |
+| **YouTube** | none (API key optional) | **Search the full mainstream catalogue** plus any public playlist, mix or video link. Plays through YouTube's official embedded player. |
+| **Audius** | none | Full-length streaming from independent artists, plus trending, genre and mood mixes. |
 | **Spotify** | your own free Client ID | Reads your playlists, albums and liked songs. Full tracks need Premium; otherwise Loru plays the 30-second preview or finds a matching Audius stream. |
 | **Direct links** | none | Any reachable MP3/AAC/OGG/FLAC URL, plus live internet radio streams. |
 
 Everything else — playlists you build, liked songs, history, settings — lives in
 your browser's local storage. There is no Loru account and no backend.
+
+## Finding any song
+
+Audius only carries independent uploads, so mainstream tracks are not in it.
+**YouTube search is what gives Loru a complete catalogue**, and it works two
+ways:
+
+1. **No setup (default).** Loru reads YouTube metadata from community-run
+   [Piped](https://github.com/TeamPiped/Piped) and
+   [Invidious](https://invidious.io) mirrors, which allow browser requests
+   without credentials. Those instances are volunteer-run and go offline
+   regularly; Loru tries several and remembers whichever worked.
+2. **With a free API key (reliable).** Enable *YouTube Data API v3* in a Google
+   Cloud project, create an API key, and paste it into
+   **Settings → YouTube search**. The free quota is about 100 searches per day,
+   since each search costs 100 of the 10,000 daily units. You can also point
+   Loru at a specific mirror there.
+
+Either route only supplies *metadata*. **Playback always runs through YouTube's
+official embedded player**, so view counts still reach the creator. Loru does
+not extract, proxy or download audio streams.
+
+Spotify tracks benefit from this too: without Premium, Loru looks the song up on
+YouTube and plays it in full, rather than falling back to a 30-second preview.
+The order is YouTube match → Audius match → preview, and it is configurable in
+**Settings → Playback**.
 
 ## Running it
 
@@ -207,9 +233,12 @@ a hidden `#__diag` element, which is what those scripts read.
 
 ## Known limits
 
-- YouTube search needs an API key, so Loru links out to YouTube search rather
-  than listing results inline. Playlist and video **links** work without a key.
+- Keyless YouTube search depends on public Piped/Invidious mirrors. The built-in
+  list will rot over time — add a working instance or an API key in Settings if
+  search stops returning results.
 - YouTube videos whose uploader disables embedding are skipped automatically.
+- Full-catalogue *native* Spotify playback is Premium-only. That is enforced by
+  Spotify, not a Loru limitation; the YouTube match exists to work around it.
 - Imported playlists are snapshots. Use **Refresh** on a playlist to re-read it
   from the source.
 - Library data is per-browser. Use **Settings → Export library** to move it.

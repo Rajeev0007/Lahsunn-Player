@@ -16,6 +16,9 @@
     showVisualizer: true,
     preferYouTubeForSpotify: true,
     spotifyClientId: '',
+    youtubeApiKey: '',
+    youtubeMirror: '',
+    demoMode: false,
     reduceData: false,
   };
 

@@ -26,7 +26,15 @@
   // `src=dir` loads the app via its directory URL instead of /index.html,
   // which is how a host with cleanUrls serves it.
   const base = params.get('src') === 'dir' ? '../' : '../index.html';
-  frame.src = base + '?demo=1#' + route;
+
+  // Same origin as the app, so we can pre-seed its storage. `demo=0` inspects
+  // the real (network-backed) views without the first-run dialog in the way.
+  const demoOff = params.get('demo') === '0';
+  localStorage.setItem('loru:seenWelcome', 'true');
+  if (demoOff) {
+    localStorage.setItem('loru:settings', JSON.stringify({ theme: 'dark', accent: 'violet', demoMode: false }));
+  }
+  frame.src = base + (demoOff ? '' : '?demo=1') + '#' + route;
 
   function report(text) {
     document.title = 'harness: ' + text;

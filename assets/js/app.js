@@ -323,6 +323,11 @@
       title: 'Welcome to Loru Player',
       desc: 'An online player — no files, no installs, no account.',
       body: [
+        el('img', {
+          src: 'assets/img/logo-full.svg', alt: 'Loru Player',
+          width: '260', height: '144',
+          style: { width: '230px', maxWidth: '70%', margin: '0 auto 4px', display: 'block' },
+        }),
         el('div.opt-list', [
           optRow('wave', 'Start listening right away', 'Search or browse millions of free Audius tracks. Nothing to set up.', () => { modal.close(); navigate('#/search'); }),
           optRow('link', 'Bring your own playlists', 'Paste a YouTube playlist link, or connect Spotify to mirror yours.', () => { modal.close(); navigate('#/sources'); }),
@@ -405,6 +410,17 @@
     }
 
     document.body.classList.add('is-ready');
+    registerServiceWorker();
+  }
+
+  /** Caches the app shell so repeat loads are instant. */
+  function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    // file:// and insecure origins cannot host a worker
+    if (location.protocol !== 'https:' && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return;
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => { /* not fatal */ });
+    });
   }
 
   L.app = {

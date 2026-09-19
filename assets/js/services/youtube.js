@@ -469,6 +469,50 @@
   }
 
   /**
+   * Trending music from the mirrors (the official API's chart endpoint
+   * needs a key, and charts are not worth 100 quota units per load).
+   */
+  async function trending({ region = 'US', limit = 20 } = {}) {
+    const cacheKey = `yttrending:${region}`;
+    const cached = L.storage.session.get(cacheKey, null);
+    if (cached && cached.length) return cached;
+
+    for (const mirror of mirrorList()) {
+      try {
+        let items = [];
+        if (mirror.kind === 'piped') {
+          const res = await L.fetchJSON(`${mirror.base}/trending?region=${encodeURIComponent(region)}`, { timeout: 7000 });
+          items = (Array.isArray(res) ? res : []).map((it) => makeTrack({
+            videoId: it.url ? (it.url.split('v=')[1] || '').split('&')[0] : it.id,
+            title: it.title,
+            artist: it.uploaderName || it.uploader,
+            artwork: it.thumbnail,
+            duration: it.duration,
+            views: it.views,
+          }));
+        } else {
+          const res = await L.fetchJSON(`${mirror.base}/api/v1/trending?type=Music&region=${encodeURIComponent(region)}`, { timeout: 7000 });
+          items = (Array.isArray(res) ? res : []).map((it) => makeTrack({
+            videoId: it.videoId,
+            title: it.title,
+            artist: it.author,
+            artwork: (it.videoThumbnails && it.videoThumbnails.find((t) => t.quality === 'medium') || {}).url,
+            duration: it.lengthSeconds,
+            views: it.viewCount,
+          }));
+        }
+
+        const clean = items.filter(Boolean).slice(0, limit);
+        if (clean.length) {
+          L.storage.session.set(cacheKey, clean);
+          return clean;
+        }
+      } catch (e) { /* next mirror */ }
+    }
+    throw new Error('Could not load YouTube trending right now.');
+  }
+
+  /**
    * Diagnostic for Settings: reports which search sources actually work,
    * so a dead mirror list can be identified without guesswork.
    */
@@ -637,6 +681,7 @@
   L.youtube = {
     parse, thumb, watchUrl, ensureApi, fetchMeta, cleanTitle, toTrack,
     resolvePlaylist, resolveVideo, hydrateTracks, searchUrl,
-    search, findMatch, resolveSearchTopResult, mirrorList, testSources, DEFAULT_MIRRORS,
+    search, findMatch, resolveSearchTopResult, trending,
+    mirrorList, testSources, DEFAULT_MIRRORS,
   };
 })(window.Loru);

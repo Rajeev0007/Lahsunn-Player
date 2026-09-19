@@ -7,10 +7,37 @@
 <title>Loru Player — Stream music from everywhere</title>
 <meta name="description" content="Loru Player is an online music player. Link your Spotify and YouTube playlists, search millions of free tracks, and listen anywhere — phone, tablet or desktop. No downloads, no local files." />
 
-<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
+<!-- Icons -->
+<link rel="icon" href="assets/img/logo-icon.svg" type="image/svg+xml" />
+<link rel="icon" href="assets/img/favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png" />
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="apple-mobile-web-app-title" content="Loru" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+
+<!-- Social share -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Loru Player" />
+<meta property="og:title" content="Loru Player — stream any song, anywhere" />
+<meta property="og:description" content="Search YouTube's full catalogue, link your Spotify and Audius playlists, and listen on phone, tablet or desktop. No downloads, no account." />
+<meta property="og:image" content="assets/img/og-image.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Loru Player — stream any song, anywhere" />
+<meta name="twitter:image" content="assets/img/og-image.png" />
+
+<!-- Warm up the hosts playback actually needs, before the user presses play -->
+<link rel="preconnect" href="https://www.youtube.com" />
+<link rel="preconnect" href="https://i.ytimg.com" />
+<link rel="dns-prefetch" href="https://api.audius.co" />
+<link rel="dns-prefetch" href="https://www.googleapis.com" />
+
+<!-- Fonts load without blocking first paint; the stack below degrades cleanly -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" /></noscript>
 
 <script>
 /* Diagnostics: surfaces unexpected script errors instead of failing silently.
@@ -94,13 +121,7 @@ window.__loruErrors = [];
   <aside class="sidebar" id="sidebar" aria-label="Main navigation">
     <div class="sidebar__head">
       <a class="brand" href="#/home" data-nav>
-        <span class="brand__mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32"><defs><linearGradient id="bg1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent-1)"/><stop offset="1" stop-color="var(--accent-2)"/></linearGradient></defs>
-            <rect width="32" height="32" rx="9" fill="url(#bg1)"/>
-            <path d="M9 21.5V10.5M9 21.5h5.5" stroke="#08080d" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-            <circle cx="20.5" cy="18.5" r="3.4" fill="none" stroke="#08080d" stroke-width="2.4"/>
-          </svg>
-        </span>
+        <img class="brand__mark" src="assets/img/logo-icon.svg" alt="" width="36" height="36" decoding="async" />
         <span class="brand__text">
           <strong>Loru</strong><span>Player</span>
         </span>
@@ -147,13 +168,7 @@ window.__loruErrors = [];
           <button class="icon-btn" id="btnForward" aria-label="Go forward"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
         </div>
         <a class="brand brand--compact" href="#/home" data-nav aria-label="Loru Player home">
-          <span class="brand__mark" aria-hidden="true">
-            <svg viewBox="0 0 32 32">
-              <rect width="32" height="32" rx="9" fill="url(#bg1)"/>
-              <path d="M9 21.5V10.5M9 21.5h5.5" stroke="#08080d" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-              <circle cx="20.5" cy="18.5" r="3.4" fill="none" stroke="#08080d" stroke-width="2.4"/>
-            </svg>
-          </span>
+          <img class="brand__mark" src="assets/img/logo-icon.svg" alt="Loru Player" width="34" height="34" decoding="async" />
         </a>
       </div>
 
@@ -316,18 +331,18 @@ window.__loruErrors = [];
 <div class="ctx-root" id="ctxRoot" hidden></div>
 <pre id="__diag" hidden aria-hidden="true"></pre>
 
-<script src="assets/js/utils.js"></script>
-<script src="assets/js/store.js"></script>
-<script src="assets/js/catalog.js"></script>
-<script src="assets/js/services/audius.js"></script>
-<script src="assets/js/services/youtube.js"></script>
-<script src="assets/js/services/spotify.js"></script>
-<script src="assets/js/services/importer.js"></script>
-<script src="assets/js/engine.js"></script>
-<script src="assets/js/visualizer.js"></script>
-<script src="assets/js/ui/components.js"></script>
-<script src="assets/js/ui/views.js"></script>
-<script src="assets/js/ui/player.js"></script>
-<script src="assets/js/app.js"></script>
+<script defer src="assets/js/utils.js"></script>
+<script defer src="assets/js/store.js"></script>
+<script defer src="assets/js/catalog.js"></script>
+<script defer src="assets/js/services/audius.js"></script>
+<script defer src="assets/js/services/youtube.js"></script>
+<script defer src="assets/js/services/spotify.js"></script>
+<script defer src="assets/js/services/importer.js"></script>
+<script defer src="assets/js/engine.js"></script>
+<script defer src="assets/js/visualizer.js"></script>
+<script defer src="assets/js/ui/components.js"></script>
+<script defer src="assets/js/ui/views.js"></script>
+<script defer src="assets/js/ui/player.js"></script>
+<script defer src="assets/js/app.js"></script>
 </body>
 </html>

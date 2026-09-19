@@ -5,9 +5,9 @@
 
 :root {
   /* ---- Accent ramps (switched via [data-accent]) ---- */
-  --accent-1: #8b5cf6;
-  --accent-2: #22d3ee;
-  --accent-3: #f472b6;
+  --accent-1: #a855f7;
+  --accent-2: #d946ef;
+  --accent-3: #e9d5ff;
   --accent: var(--accent-1);
   --accent-ink: #0a0a12;
   --accent-soft: color-mix(in oklab, var(--accent-1) 18%, transparent);
@@ -112,7 +112,9 @@
 }
 
 /* ---- Accent variants ---- */
-[data-accent="violet"] { --accent-1: #8b5cf6; --accent-2: #22d3ee; --accent-3: #f472b6; }
+/* Default ramp is pulled from the Loru logo: violet through fuchsia, with
+   the lavender highlight as the third stop. No cyan — the mark has none. */
+[data-accent="violet"] { --accent-1: #a855f7; --accent-2: #d946ef; --accent-3: #e9d5ff; }
 [data-accent="sunset"]  { --accent-1: #fb7185; --accent-2: #fbbf24; --accent-3: #f472b6; }
 [data-accent="mint"]    { --accent-1: #34d399; --accent-2: #22d3ee; --accent-3: #a3e635; }
 [data-accent="ocean"]   { --accent-1: #3b82f6; --accent-2: #22d3ee; --accent-3: #818cf8; }
@@ -263,6 +265,14 @@ ul, ol { list-style: none; padding: 0; }
 /* ============================================================
    Motion preferences
    ============================================================ */
+/* Large blurs and a full-page blend layer are the most expensive things we
+   paint. Phones get a cheaper background so scrolling stays smooth. */
+@media (max-width: 768px) {
+  .ambient__grain { display: none; }
+  .ambient__blob { filter: blur(48px); animation: none; }
+  .ambient__blob--3 { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .001ms !important;

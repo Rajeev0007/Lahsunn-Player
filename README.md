@@ -176,6 +176,8 @@ instead.
 ```
 loru-player/
 ├── index.html              app shell, icon sprite, diagnostics hook
+├── manifest.webmanifest    PWA metadata, installable to a home screen
+├── sw.js                   service worker: instant repeat loads
 ├── vercel.json             cleanUrls, cache + security headers
 ├── .vercelignore           keeps tools/ out of deployments
 ├── assets/
@@ -217,6 +219,52 @@ loru-player/
 If a stream is served without CORS headers the engine transparently reloads it
 without `crossOrigin` so audio keeps working, and the visualizer falls back to a
 synthetic waveform rather than going silent.
+
+## Branding
+
+The logo ships as three SVG variants, because one drawing cannot serve every
+size:
+
+| File | Use |
+| --- | --- |
+| `assets/img/logo-icon.svg` | Favicon, sidebar, app icons. Simplified — the detailed mark turns to mush below ~48px. |
+| `assets/img/logo-mark.svg` | Detailed mark with the orbital ring and sparkles, for sizes above ~96px. |
+| `assets/img/logo-full.svg` | Full lockup with the LORU PLAYER wordmark, used on the welcome screen and share card. |
+
+PNG derivatives (`icon-192`, `icon-512`, `apple-touch-icon`, `favicon-32`,
+`og-image`) are generated from those SVGs — regenerate after any logo edit:
+
+```bash
+tools/make-icons.sh
+```
+
+**Using different artwork:** replace the SVGs and re-run that script. If you only
+have a raster logo, save it as `assets/img/logo-icon.svg`'s replacement in PNG
+form and update the references in `index.html`. Export with a **transparent
+background** — a white-backed logo shows as a white box against the dark UI.
+
+The default accent ramp in `theme.css` is sampled from the logo (violet →
+fuchsia), so the interface and the mark stay in step.
+
+## Performance
+
+- No build step, no framework, no dependencies — 17 requests for the whole app.
+- All scripts are `defer`red, so HTML parsing is never blocked. Measured
+  locally: DOM interactive ~17ms, first contentful paint ~120ms.
+- Fonts load non-blocking via a `media="print"` swap, with a system-font stack
+  underneath, so text never waits on the network.
+- `preconnect` to YouTube and `i.ytimg.com` warms the connections playback needs
+  before the user presses play.
+- A service worker precaches the app shell (stale-while-revalidate), making
+  repeat visits effectively instant. Third-party traffic is never intercepted.
+- Search results are cached per session, which also protects the YouTube API
+  quota.
+- Phones skip the grain overlay and one background blob — large blurs and
+  full-page blend layers are the most expensive things the page paints.
+
+One deliberate constraint: entry animations only animate `transform`, never
+`opacity`. Fading content in from invisible means any environment that fails to
+run the animation renders a blank page.
 
 ## Development helpers
 

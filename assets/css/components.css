@@ -173,7 +173,11 @@
 
 /* ─────────────────────────── Views / sections ─────────────────────────── */
 .view { padding: 8px var(--gutter) 60px; animation: view-in var(--t-slow) var(--ease-out); }
-@keyframes view-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+/* Deliberately animates transform only. An opacity fade would mean the
+   content is invisible until the animation runs, so any environment that
+   doesn't advance the animation clock renders a blank page. */
+@keyframes view-in { from { transform: translateY(14px); } to { transform: none; } }
 
 .section { margin-top: clamp(26px, 3vw, 44px); }
 .section__head {

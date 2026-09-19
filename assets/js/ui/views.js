@@ -50,12 +50,37 @@
       render(store.state.route, true);
     },
 
+    get youtubeFirst() { return store.state.settings.defaultSource !== 'audius'; },
+
     async trending(genre) {
       if (this.demo) {
         catalog.demo.activate();
         return genre ? catalog.demo.byGenre(genre) : catalog.demo.trending(14);
       }
       return genre ? audius.trending({ genre, limit: 14 }) : audius.trending({ limit: 14 });
+    },
+
+    /** Charts for the home screen — YouTube first, Audius as the backstop. */
+    async charts() {
+      if (this.demo) { catalog.demo.activate(); return { source: 'demo', tracks: catalog.demo.trending(14) }; }
+      if (this.youtubeFirst) {
+        try {
+          return { source: 'youtube', tracks: await youtube.trending({ limit: 16 }) };
+        } catch (e) { /* fall back to Audius so the row still fills */ }
+      }
+      return { source: 'audius', tracks: await audius.trending({ limit: 14 }) };
+    },
+
+    /** A themed mix: YouTube search when it is the default source. */
+    async mix(query) {
+      if (this.demo) { catalog.demo.activate(); return catalog.demo.search(query); }
+      if (this.youtubeFirst) {
+        try {
+          const tracks = await youtube.search(query, { limit: 24 });
+          if (tracks.length) return tracks;
+        } catch (e) { /* fall through */ }
+      }
+      return audius.searchTracks(query, { limit: 30 });
     },
 
     async underground() {
@@ -210,13 +235,13 @@
         'Every playlist you own, ',
         el('span.gradient-text', 'in one player.'),
       ]),
-      el('p.hero__lead', 'Loru streams music straight from the web. Link a Spotify or YouTube playlist, search millions of free Audius tracks, or drop in a direct stream URL — then listen on your phone, tablet or desktop with the same player.'),
+      el('p.hero__lead', 'Search any song on YouTube and hear it in full — no account, no Premium, nothing to install. Link your Spotify and YouTube playlists, or drop in a direct stream, then listen on phone, tablet or desktop with the same player.'),
       el('div.hero__actions', [
         el('button.btn.btn--primary.btn--lg', { type: 'button', onclick: () => { location.hash = '#/sources'; } }, [icon('link'), 'Link a playlist']),
         el('button.btn.btn--outline.btn--lg', { type: 'button', onclick: () => { location.hash = '#/search'; } }, [icon('search'), 'Browse music']),
       ]),
       el('div.hero__stats', [
-        el('div.hero__stat', [el('strong', '4'), el('span', 'sources supported')]),
+        el('div.hero__stat', [el('strong', 'Any'), el('span', 'song, in full')]),
         el('div.hero__stat', [el('strong', { text: String(store.state.playlists.length) }), el('span', 'your playlists')]),
         el('div.hero__stat', [el('strong', { text: String(store.state.liked.length) }), el('span', 'liked songs')]),
         el('div.hero__stat', [el('strong', '0'), el('span', 'files stored')]),
@@ -259,11 +284,28 @@
       ));
     }
 
-    /* ---- trending (live) ---- */
-    view.appendChild(ui.section(
-      { title: data.demo ? 'Demo picks' : 'Trending on Audius', sub: data.demo ? 'Offline sample catalogue' : 'Free, fully licensed streaming — no account needed' },
-      asyncBlock(() => data.trending(), (tracks) => trackRail(tracks, { type: 'collection', id: 'trending', name: 'Trending' })),
-    ));
+    /* ---- charts (live) ---- */
+    const chartsHead = el('div.section__head', [
+      el('div', [
+        el('h2.section__title', { text: data.demo ? 'Demo picks' : 'Trending now' }),
+        el('div.section__sub', { id: 'chartsSub', text: data.demo ? 'Offline sample catalogue' : 'Charting music, played in full' }),
+      ]),
+    ]);
+    view.appendChild(el('section.section', [
+      chartsHead,
+      asyncBlock(
+        () => data.charts(),
+        (result) => {
+          const sub = chartsHead.querySelector('#chartsSub');
+          if (sub && !data.demo) {
+            sub.textContent = result.source === 'youtube'
+              ? 'Top music on YouTube, played in full'
+              : 'Free independent music on Audius';
+          }
+          return trackRail(result.tracks, { type: 'collection', id: 'trending', name: 'Trending now' });
+        },
+      ),
+    ]));
 
     /* ---- moods ---- */
     view.appendChild(ui.section(
@@ -731,11 +773,11 @@
       el('div.pl-head__body', [
         el('div.pl-head__kind', 'Genre'),
         el('h1.pl-head__title', { text: genre }),
-        el('p.pl-head__desc', { text: `Trending ${genre} tracks streaming free on Audius.` }),
+        el('p.pl-head__desc', { text: `Popular ${genre} tracks, played in full.` }),
       ]),
     ]));
     view.appendChild(asyncBlock(
-      () => data.trending(genre),
+      () => data.mix(`${genre} music`),
       (tracks) => el('div', [
         el('div.pl-actions', [
           el('button.btn.btn--primary.btn--lg', { type: 'button', onclick: () => engine.playCollection(tracks, 0, { type: 'genre', id: genre, name: genre }) }, [icon('play'), 'Play']),
@@ -763,7 +805,7 @@
       ]),
     ]));
     view.appendChild(asyncBlock(
-      () => data.searchTracks(mood.query),
+      () => data.mix(mood.query),
       (tracks) => el('div', [
         el('div.pl-actions', [
           el('button.btn.btn--primary.btn--lg', { type: 'button', onclick: () => engine.playCollection(tracks, 0, { type: 'mood', id: mood.id, name: mood.name }) }, [icon('play'), 'Play mix']),
@@ -1218,6 +1260,12 @@
     /* playback */
     view.appendChild(ui.section({ title: 'Playback' }, el('div.panel', [
       toggleRow('Autoplay next track', 'Continue through the queue automatically.', 'autoplayNext'),
+      settingRow('Default music source', 'Where charts, genres and mood mixes come from. YouTube has effectively every song; Audius is independent artists only.',
+        el('div.chips', [['youtube', 'YouTube'], ['audius', 'Audius']].map(([id, label]) =>
+          el('button.chip' + (s.defaultSource === id ? '.is-active' : ''), {
+            type: 'button',
+            onclick: () => { store.updateSettings({ defaultSource: id }); render(store.state.route, true); },
+          }, label)))),
       toggleRow('Play Spotify tracks via YouTube', 'Without Premium, find the full song on YouTube instead of playing a 30-second preview.', 'preferYouTubeForSpotify'),
       toggleRow('Demo content', 'Fills the app with a sample catalogue that works with no connection.', 'demoMode', (on) => {
         on ? data.enableDemo() : data.disableDemo();

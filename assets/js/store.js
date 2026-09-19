@@ -18,6 +18,7 @@
     spotifyClientId: '',
     youtubeApiKey: '',
     youtubeMirror: '',
+    defaultSource: 'youtube',
     demoMode: false,
     reduceData: false,
   };

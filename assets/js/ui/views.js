@@ -84,7 +84,7 @@
      ============================================================ */
 
   /** Render an async block with skeleton → content → error states. */
-  function asyncBlock(loader, render, { skeleton, onEmpty } = {}) {
+  function asyncBlock(loader, render, { skeleton, onEmpty, onError } = {}) {
     const host = el('div');
     host.appendChild(skeleton || ui.skeletonCards(6));
 
@@ -104,7 +104,7 @@
         })
         .catch((err) => {
           if (cancelled) return;
-          host.replaceChildren(offlineState(err, run));
+          host.replaceChildren(onError ? onError(err, run) : offlineState(err, run));
         });
     }
     run();
@@ -124,6 +124,27 @@
         { label: 'Try again', icon: 'repeat', variant: 'soft', onClick: retry },
         !data.demo ? { label: 'Use demo content', icon: 'sparkle', variant: 'primary', onClick: () => data.enableDemo() } : null,
       ].filter(Boolean),
+    });
+  }
+
+  /**
+   * YouTube search can fail in two distinct ways, and the fix differs:
+   * a bad/exhausted API key, or every keyless mirror being down.
+   */
+  function youtubeSearchError(err, retry, query) {
+    const isKey = err.code === 'yt-key';
+    if (err.tried) console.info('[Loru] YouTube mirrors tried:', err.tried);
+
+    return ui.emptyState({
+      compact: true,
+      icon: 'youtube',
+      title: isKey ? 'YouTube API key problem' : 'YouTube search is unreachable',
+      text: err.message,
+      actions: [
+        { label: 'Try again', icon: 'repeat', variant: 'soft', onClick: retry },
+        { label: isKey ? 'Fix key' : 'Add an API key', icon: 'settings', variant: 'primary', onClick: () => { location.hash = '#/settings'; } },
+        { label: 'Search on YouTube', icon: 'globe', onClick: () => window.open(youtube.searchUrl(query), '_blank', 'noopener') },
+      ],
     });
   }
 
@@ -289,25 +310,42 @@
     view.appendChild(el('section.section', [
       ui.sectionHead({ title: `Results for “${q}”` }),
       el('div.chips', { style: { marginBottom: '18px' } }, [
-        ['all', 'Everything'], ['tracks', 'Songs'], ['playlists', 'Playlists'], ['artists', 'Artists'],
+        ['all', 'Everything'], ['youtube', 'YouTube'], ['audius', 'Audius'],
+        ['playlists', 'Playlists'], ['artists', 'Artists'],
       ].map(([id, label]) => el('button.chip' + (searchFilter === id ? '.is-active' : ''), {
         type: 'button',
         onclick: () => { searchFilter = id; render(store.state.route, true); },
       }, label))),
     ]));
 
-    if (searchFilter === 'all' || searchFilter === 'tracks') {
+    /* YouTube first — it is the only source with a mainstream catalogue. */
+    if (!data.demo && (searchFilter === 'all' || searchFilter === 'youtube')) {
       view.appendChild(ui.section(
-        { title: 'Songs', sub: data.demo ? 'From the demo catalogue' : 'Streaming from Audius' },
+        { title: 'Songs on YouTube', sub: 'Full-length playback through YouTube’s player' },
+        asyncBlock(
+          () => youtube.search(q, { limit: 24 }),
+          (tracks) => ui.trackList(tracks, { context: { type: 'search', id: 'yt:' + q, name: `YouTube: ${q}` } }),
+          {
+            skeleton: ui.skeletonRows(8),
+            onEmpty: () => ui.emptyState({ compact: true, title: 'No YouTube results', text: 'Try fewer words, or the artist name on its own.' }),
+            onError: (err, retry) => youtubeSearchError(err, retry, q),
+          },
+        ),
+      ));
+    }
+
+    if (searchFilter === 'all' || searchFilter === 'audius') {
+      view.appendChild(ui.section(
+        { title: data.demo ? 'Songs' : 'Free on Audius', sub: data.demo ? 'From the demo catalogue' : 'Independent artists, no account needed' },
         asyncBlock(
           () => data.searchTracks(q),
           (tracks) => ui.trackList(tracks, { context: { type: 'search', id: q, name: `Search: ${q}` } }),
           {
             skeleton: ui.skeletonRows(6),
             onEmpty: () => ui.emptyState({
-              title: 'No songs matched',
-              text: `Nothing on Audius for “${q}”. YouTube may still have it.`,
-              actions: [{ label: 'Search YouTube', icon: 'youtube', variant: 'soft', onClick: () => window.open(youtube.searchUrl(q), '_blank', 'noopener') }],
+              compact: true,
+              title: 'Nothing on Audius',
+              text: 'Audius carries independent uploads, so mainstream tracks usually only appear on YouTube.',
             }),
           },
         ),
@@ -1142,10 +1180,51 @@
     /* playback */
     view.appendChild(ui.section({ title: 'Playback' }, el('div.panel', [
       toggleRow('Autoplay next track', 'Continue through the queue automatically.', 'autoplayNext'),
-      toggleRow('Find a playable match', 'When a Spotify track can’t stream directly, look for the same song on Audius.', 'preferYouTubeForSpotify'),
+      toggleRow('Play Spotify tracks via YouTube', 'Without Premium, find the full song on YouTube instead of playing a 30-second preview.', 'preferYouTubeForSpotify'),
       toggleRow('Demo content', 'Fills the app with a sample catalogue that works with no connection.', 'demoMode', (on) => {
         on ? data.enableDemo() : data.disableDemo();
       }),
+    ])));
+
+    /* youtube */
+    view.appendChild(ui.section({ title: 'YouTube search' }, el('div.panel', [
+      el('div.callout', [
+        icon('info'),
+        el('div', [
+          el('strong', 'Search works without any setup. '),
+          'Loru reads YouTube metadata from community-run Piped and Invidious mirrors. Those go offline fairly often — adding your own free API key below makes search reliable. Playback always uses YouTube’s official player either way.',
+        ]),
+      ]),
+      settingRow('YouTube Data API key', 'Optional. Free from Google Cloud; roughly 100 searches per day on the free quota.',
+        (() => {
+          const inp = el('input.input', {
+            type: 'text', value: s.youtubeApiKey || '', placeholder: 'AIza…',
+            spellcheck: 'false', autocomplete: 'off', style: { minWidth: '240px' },
+          });
+          inp.addEventListener('change', () => {
+            store.updateSettings({ youtubeApiKey: inp.value.trim() });
+            toast({ kind: 'success', title: inp.value.trim() ? 'API key saved' : 'API key cleared', text: 'Search will use it from now on.', timeout: 2600 });
+          });
+          return inp;
+        })()),
+      settingRow('Custom mirror', 'Optional. A Piped or Invidious API base URL to try before the built-in list.',
+        (() => {
+          const inp = el('input.input', {
+            type: 'url', value: s.youtubeMirror || '', placeholder: 'https://pipedapi.example.com',
+            spellcheck: 'false', autocomplete: 'off', style: { minWidth: '240px' },
+          });
+          inp.addEventListener('change', () => {
+            store.updateSettings({ youtubeMirror: inp.value.trim() });
+            L.storage.remove('yt:mirror');
+            toast({ kind: 'success', title: 'Mirror saved', timeout: 2200 });
+          });
+          return inp;
+        })()),
+      settingRow('How to get a key', 'Enable “YouTube Data API v3” in a Google Cloud project, then create an API key under Credentials.',
+        el('a.btn.btn--soft.btn--sm', {
+          href: 'https://console.cloud.google.com/apis/library/youtube.googleapis.com',
+          target: '_blank', rel: 'noopener',
+        }, [icon('globe'), 'Google Cloud'])),
     ])));
 
     /* spotify */

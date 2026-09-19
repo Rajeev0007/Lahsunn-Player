@@ -202,11 +202,20 @@
     if (track.source !== 'spotify') return { track };
     if (store.state.connections.spotify.premium) return { track };
 
-    if (track.previewUrl) {
-      return {
-        track: { ...track, playbackVia: 'preview', streamUrl: track.previewUrl, duration: 30 },
-        note: 'Playing a 30-second Spotify preview — Premium is needed for full tracks.',
-      };
+    /* A full-length YouTube match beats a 30-second preview, so try it first.
+       `videoId` is kept in a separate field so the track keeps its Spotify
+       identity (and therefore its liked state) while playing from YouTube. */
+    if (store.state.settings.preferYouTubeForSpotify) {
+      const yt = await youtube.findMatch(track.title, track.artist).catch(() => null);
+      if (yt) {
+        return {
+          track: {
+            ...track, playbackVia: 'youtube', matchedFrom: 'spotify',
+            ytVideoId: yt.videoId, duration: yt.duration || track.duration,
+          },
+          note: `Playing the full track from YouTube: “${yt.title}”.`,
+        };
+      }
     }
 
     const match = await audius.findMatch(track.title, track.artist).catch(() => null);
@@ -221,7 +230,14 @@
       };
     }
 
-    const err = new Error(`“${track.title}” needs Spotify Premium and has no preview clip.`);
+    if (track.previewUrl) {
+      return {
+        track: { ...track, playbackVia: 'preview', streamUrl: track.previewUrl, duration: 30 },
+        note: 'Only a 30-second Spotify preview is available for this one.',
+      };
+    }
+
+    const err = new Error(`No playable source found for “${track.title}”.`);
     err.permalink = track.permalink;
     throw err;
   }

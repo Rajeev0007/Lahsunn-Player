@@ -235,14 +235,231 @@
     }
   }
 
-  /** Search fallback: we cannot query the Data API without a key, so we
-      hand the user a ready-made search URL instead of failing silently. */
   function searchUrl(query) {
     return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+  }
+
+  /* ============================================================
+     Search
+     ------------------------------------------------------------
+     YouTube's own search endpoint needs an API key, so there are
+     two routes:
+
+       1. Official Data API v3, if the listener supplies a free key
+          (most reliable, but only ~100 searches/day on the free
+          quota since each search costs 100 units).
+       2. Public Piped / Invidious mirrors, which expose YouTube
+          metadata with CORS enabled and no key at all.
+
+     Either way only *metadata* comes from these sources — playback
+     always runs through YouTube's official embedded player, so
+     view counts still reach the creator. Loru never extracts or
+     downloads audio streams.
+     ============================================================ */
+
+  const DEFAULT_MIRRORS = [
+    { kind: 'piped', base: 'https://pipedapi.kavin.rocks' },
+    { kind: 'piped', base: 'https://api.piped.private.coffee' },
+    { kind: 'piped', base: 'https://pipedapi.adminforge.de' },
+    { kind: 'invidious', base: 'https://inv.nadeko.net' },
+    { kind: 'invidious', base: 'https://invidious.nerdvpn.de' },
+    { kind: 'invidious', base: 'https://invidious.fdn.fr' },
+  ];
+
+  const MIRROR_KEY = 'yt:mirror';
+
+  function settings() { return (store.state && store.state.settings) || {}; }
+  function apiKey() { return (settings().youtubeApiKey || '').trim(); }
+
+  /** User-supplied mirror first, then the last one that worked, then the rest. */
+  function mirrorList() {
+    const list = [];
+    const custom = (settings().youtubeMirror || '').trim().replace(/\/$/, '');
+    if (custom) {
+      list.push({ kind: /invidious|\/api\/v1/.test(custom) ? 'invidious' : 'piped', base: custom, custom: true });
+    }
+    const remembered = L.storage.get(MIRROR_KEY, null);
+    if (remembered && remembered.base) list.push(remembered);
+    DEFAULT_MIRRORS.forEach((m) => {
+      if (!list.some((x) => x.base === m.base)) list.push(m);
+    });
+    return list;
+  }
+
+  /** ISO-8601 (PT3M24S) → seconds, used by the official API. */
+  function parseISODuration(iso) {
+    const m = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(String(iso || ''));
+    if (!m) return 0;
+    return (+m[1] || 0) * 86400 + (+m[2] || 0) * 3600 + (+m[3] || 0) * 60 + (+m[4] || 0);
+  }
+
+  function cleanArtist(name) {
+    return String(name || 'YouTube').replace(/\s*-\s*Topic$/i, '').trim() || 'YouTube';
+  }
+
+  function makeTrack({ videoId, title, artist, artwork, duration, views }) {
+    if (!videoId) return null;
+    return {
+      id: videoId,
+      source: 'youtube',
+      videoId,
+      title: cleanTitle(title) || title || 'Untitled',
+      artist: cleanArtist(artist),
+      artwork: artwork || thumb(videoId),
+      duration: Number(duration) || 0,
+      plays: Number(views) || 0,
+      permalink: watchUrl(videoId),
+    };
+  }
+
+  /* ---- route 1: official Data API ---- */
+  async function searchViaApi(query, limit) {
+    const key = apiKey();
+    const params = new URLSearchParams({
+      key, part: 'snippet', type: 'video', videoCategoryId: '10',
+      maxResults: String(Math.min(limit, 25)), q: query,
+    });
+
+    let res;
+    try {
+      res = await L.fetchJSON(`https://www.googleapis.com/youtube/v3/search?${params}`, { timeout: 10000 });
+    } catch (err) {
+      const reason = err.payload && err.payload.error && err.payload.error.message;
+      if (err.status === 403) {
+        const e = new Error(reason && /quota/i.test(reason)
+          ? 'Your YouTube API key is out of quota for today (the free tier allows about 100 searches).'
+          : 'YouTube rejected that API key. Check it is enabled for the YouTube Data API v3.');
+        e.code = 'yt-key';
+        throw e;
+      }
+      if (err.status === 400) {
+        const e = new Error('That YouTube API key looks invalid.');
+        e.code = 'yt-key';
+        throw e;
+      }
+      throw err;
+    }
+
+    const ids = (res.items || []).map((it) => it.id && it.id.videoId).filter(Boolean);
+    if (!ids.length) return [];
+
+    // A second call is needed because search.list omits durations.
+    let details = {};
+    try {
+      const dRes = await L.fetchJSON(`https://www.googleapis.com/youtube/v3/videos?${new URLSearchParams({
+        key, part: 'contentDetails,statistics', id: ids.join(','),
+      })}`, { timeout: 10000 });
+      (dRes.items || []).forEach((it) => {
+        details[it.id] = {
+          duration: parseISODuration(it.contentDetails && it.contentDetails.duration),
+          views: it.statistics && it.statistics.viewCount,
+        };
+      });
+    } catch (e) { /* durations are optional */ }
+
+    return (res.items || []).map((it) => {
+      const id = it.id && it.id.videoId;
+      const sn = it.snippet || {};
+      const extra = details[id] || {};
+      return makeTrack({
+        videoId: id,
+        title: sn.title,
+        artist: sn.channelTitle,
+        artwork: (sn.thumbnails && (sn.thumbnails.medium || sn.thumbnails.default) || {}).url,
+        duration: extra.duration,
+        views: extra.views,
+      });
+    }).filter(Boolean);
+  }
+
+  /* ---- route 2: keyless metadata mirrors ---- */
+  async function searchOneMirror(mirror, query, limit) {
+    if (mirror.kind === 'piped') {
+      const url = `${mirror.base}/search?q=${encodeURIComponent(query)}&filter=music_songs`;
+      const res = await L.fetchJSON(url, { timeout: 7000 });
+      const items = (res.items || res || []);
+      return items
+        .filter((it) => it && (it.url || it.id))
+        .map((it) => {
+          const videoId = it.url ? (it.url.split('v=')[1] || '').split('&')[0] : it.id;
+          return makeTrack({
+            videoId,
+            title: it.title,
+            artist: it.uploaderName || it.uploader,
+            artwork: it.thumbnail,
+            duration: it.duration,
+            views: it.views,
+          });
+        })
+        .filter(Boolean)
+        .slice(0, limit);
+    }
+
+    // Invidious
+    const url = `${mirror.base}/api/v1/search?q=${encodeURIComponent(query)}&type=video&sort_by=relevance`;
+    const res = await L.fetchJSON(url, { timeout: 7000 });
+    return (Array.isArray(res) ? res : [])
+      .map((it) => makeTrack({
+        videoId: it.videoId,
+        title: it.title,
+        artist: it.author,
+        artwork: (it.videoThumbnails && it.videoThumbnails.find((t) => t.quality === 'medium') || {}).url,
+        duration: it.lengthSeconds,
+        views: it.viewCount,
+      }))
+      .filter(Boolean)
+      .slice(0, limit);
+  }
+
+  async function searchViaMirrors(query, limit) {
+    const tried = [];
+    for (const mirror of mirrorList()) {
+      try {
+        const results = await searchOneMirror(mirror, query, limit);
+        if (results.length) {
+          L.storage.set(MIRROR_KEY, { kind: mirror.kind, base: mirror.base });
+          return results;
+        }
+        tried.push(`${mirror.base} (no results)`);
+      } catch (err) {
+        tried.push(`${mirror.base} (${err.message})`);
+      }
+    }
+    const e = new Error('No YouTube metadata service responded. They are community-run and go offline often — add your own API key or mirror in Settings.');
+    e.code = 'yt-mirrors';
+    e.tried = tried;
+    throw e;
+  }
+
+  /**
+   * Search YouTube for songs.
+   * @returns {Promise<Array>} normalized, playable tracks
+   */
+  async function search(query, { limit = 24 } = {}) {
+    const q = String(query || '').trim();
+    if (!q) return [];
+    if (apiKey()) {
+      try {
+        return await searchViaApi(q, limit);
+      } catch (err) {
+        if (err.code === 'yt-key') throw err;   // surface key problems
+        return searchViaMirrors(q, limit);      // network hiccup: fall back
+      }
+    }
+    return searchViaMirrors(q, limit);
+  }
+
+  /** Best single match for a title/artist — used to make Spotify tracks playable. */
+  async function findMatch(title, artist) {
+    const results = await search(`${title} ${artist}`.trim(), { limit: 5 }).catch(() => []);
+    if (!results.length) return null;
+    const want = String(title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    return results.find((t) => t.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().includes(want)) || results[0];
   }
 
   L.youtube = {
     parse, thumb, watchUrl, ensureApi, fetchMeta, cleanTitle, toTrack,
     resolvePlaylist, resolveVideo, hydrateTracks, searchUrl,
+    search, findMatch, mirrorList, DEFAULT_MIRRORS,
   };
 })(window.Loru);

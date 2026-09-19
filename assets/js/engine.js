@@ -353,7 +353,12 @@
 
     store.pushRecent(track);
 
-    const isYouTube = playable.source === 'youtube' && playable.videoId;
+    // A track can play through YouTube either natively or as a matched
+    // stand-in for a Spotify track (which keeps its own source/identity).
+    const ytVideoId = playable.source === 'youtube'
+      ? playable.videoId
+      : (playable.playbackVia === 'youtube' ? playable.ytVideoId : null);
+    const isYouTube = !!ytVideoId;
     const isSpotifyNative = playable.source === 'spotify' && !playable.playbackVia && store.state.connections.spotify.premium;
     const isDemo = playable.source === 'demo';
 
@@ -363,7 +368,7 @@
         stopAllBackends('youtube');
         const p = await ensureYouTube();
         showYouTubeSurface(true);
-        p.loadVideoById({ videoId: playable.videoId, startSeconds: startAt });
+        p.loadVideoById({ videoId: ytVideoId, startSeconds: startAt });
         if (!autoplay) setTimeout(() => { try { p.pauseVideo(); } catch (e) {} }, 350);
         startTicker();
         return;

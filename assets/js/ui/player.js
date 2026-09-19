@@ -153,8 +153,12 @@
       node.hidden = false;
       const meta = ui.SOURCE_META[t.source] || ui.SOURCE_META.local;
       node.dataset.source = t.source;
-      node.replaceChildren(icon(meta.icon), document.createTextNode(
-        t.playbackVia === 'preview' ? 'Preview' : t.playbackVia === 'audius' ? 'Audius match' : meta.label));
+      const viaLabel = {
+        preview: 'Preview',
+        audius: 'Audius match',
+        youtube: 'via YouTube',
+      }[t.playbackVia];
+      node.replaceChildren(icon(meta.icon), document.createTextNode(viaLabel || meta.label));
     });
 
     const origin = $('#npOrigin');
@@ -365,6 +369,7 @@
       t.plays ? ['Plays', L.formatCount(t.plays)] : null,
       t.playbackVia === 'preview' ? ['Playing', '30-second preview'] : null,
       t.playbackVia === 'audius' ? ['Playing', 'Matched Audius stream'] : null,
+      t.playbackVia === 'youtube' ? ['Playing', 'Matched YouTube video'] : null,
     ].filter(Boolean);
 
     return el('div.npq', [

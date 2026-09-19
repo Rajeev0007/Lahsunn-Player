@@ -138,14 +138,39 @@
     return ui.emptyState({
       compact: true,
       icon: 'youtube',
-      title: isKey ? 'YouTube API key problem' : 'YouTube search is unreachable',
-      text: err.message,
+      title: isKey ? 'YouTube API key problem' : 'Can’t list results right now',
+      text: `${err.message} You can still play the song directly — that route needs no key or mirror.`,
       actions: [
+        { label: `Play “${query.length > 28 ? query.slice(0, 28) + '…' : query}”`, icon: 'play', variant: 'primary', onClick: () => playTopResult(query) },
         { label: 'Try again', icon: 'repeat', variant: 'soft', onClick: retry },
-        { label: isKey ? 'Fix key' : 'Add an API key', icon: 'settings', variant: 'primary', onClick: () => { location.hash = '#/settings'; } },
-        { label: 'Search on YouTube', icon: 'globe', onClick: () => window.open(youtube.searchUrl(query), '_blank', 'noopener') },
+        { label: isKey ? 'Fix key' : 'Add an API key', icon: 'settings', onClick: () => { location.hash = '#/settings'; } },
       ],
     });
+  }
+
+  /**
+   * Plays the top YouTube result for a phrase via the official player.
+   * Independent of API keys and mirrors, so it is the reliable last resort
+   * for "just play this song".
+   */
+  async function playTopResult(query) {
+    const close = toast({ title: 'Finding that song…', text: query, timeout: 0 });
+    try {
+      const top = await youtube.resolveSearchTopResult(query);
+      close();
+      const track = youtube.toTrack(top.videoId, {
+        title: top.title || query,
+        artist: top.artist || 'YouTube',
+      });
+      engine.playTrack(track, { type: 'search', id: query, name: `Search: ${query}` });
+      toast({ kind: 'success', title: 'Playing', text: track.title, timeout: 2600 });
+    } catch (err) {
+      close();
+      toast({
+        kind: 'error', title: 'Couldn’t find that song', text: err.message, timeout: 6000,
+        action: { label: 'Open YouTube', onClick: () => window.open(youtube.searchUrl(query), '_blank', 'noopener') },
+      });
+    }
   }
 
   function trackRail(tracks, context) {
@@ -307,6 +332,19 @@
       view.appendChild(importPreviewCard(q, detected));
     }
 
+    /* Always-available instant play: works with no key and no mirrors. */
+    if (!data.demo) {
+      view.appendChild(el('section.section', { style: { marginTop: '14px' } },
+        el('div.tile', { style: { background: 'var(--accent-grad-soft)', borderColor: 'var(--border-strong)' } }, [
+          el('span.pl-item__art', { style: { background: 'var(--accent-grad)', color: 'var(--accent-ink)' } }, icon('play')),
+          el('div.tile__body', [
+            el('div.tile__title', { text: `Play “${q}” now` }),
+            el('div.tile__sub', 'Top YouTube result · full length · no setup'),
+          ]),
+          el('button.btn.btn--primary.btn--sm', { type: 'button', onclick: () => playTopResult(q) }, [icon('play'), 'Play']),
+        ])));
+    }
+
     view.appendChild(el('section.section', [
       ui.sectionHead({ title: `Results for “${q}”` }),
       el('div.chips', { style: { marginBottom: '18px' } }, [
@@ -388,7 +426,7 @@
     }
 
     if (spotify.isConnected()) {
-      view.appendChild(ui.section({ title: 'From your Spotify', sub: 'Playable via preview or an Audius match unless you have Premium' }, asyncBlock(
+      view.appendChild(ui.section({ title: 'From your Spotify', sub: 'Played in full from YouTube — no Premium needed' }, asyncBlock(
         () => spotify.search(q, { limit: 12 }).then((r) => r.tracks),
         (tracks) => ui.trackList(tracks, { context: { type: 'search', id: 'sp:' + q, name: `Spotify: ${q}` } }),
         { skeleton: ui.skeletonRows(4), onEmpty: () => ui.emptyState({ title: 'Nothing on Spotify either' }) },
@@ -853,8 +891,8 @@
       body: sp.connected
         ? (sp.premium
           ? 'Premium detected — full tracks play through the official Spotify player.'
-          : 'Free accounts can’t stream full tracks outside Spotify, so Loru plays the 30-second preview or finds the closest Audius match automatically.')
-        : 'Spotify requires each listener to use their own free developer Client ID. It takes about a minute to set up and stays in your browser.',
+          : 'Free account: Spotify itself won’t stream full tracks outside its own app, so Loru finds each song on YouTube and plays it in full instead. Nothing is limited to 30 seconds.')
+        : 'Spotify requires each listener to use their own free developer Client ID. It takes about a minute to set up and stays in your browser. A free account is enough.',
       foot: sp.connected ? [
         el('button.btn.btn--soft.btn--sm', { type: 'button', onclick: () => importSpotifyLibrary() }, [icon('library'), 'Import my playlists']),
         el('button.btn.btn--ghost.btn--sm', { type: 'button', onclick: () => { spotify.logout(); toast({ title: 'Disconnected from Spotify' }); render(store.state.route, true); } }, 'Disconnect'),
@@ -1052,11 +1090,11 @@
           idInput,
           el('span.field__hint', 'Stored only in this browser’s local storage. No secret is needed — Loru uses the PKCE flow.'),
         ]),
-        el('div.callout.callout--warn', [
+        el('div.callout', [
           icon('info'),
           el('div', [
-            el('strong', 'Playing full Spotify tracks needs Premium. '),
-            'Reading playlists works on a free account; Loru then plays 30-second previews or the closest Audius match.',
+            el('strong', 'A free Spotify account is enough. '),
+            'Loru reads your playlists, then plays each song in full from YouTube. Premium only changes which player handles playback, not what you can listen to.',
           ]),
         ]),
       ],
@@ -1233,7 +1271,7 @@
       settingRow(
         sp.connected ? `Connected as ${sp.user ? sp.user.name : 'you'}` : 'Not connected',
         sp.connected
-          ? (sp.premium ? 'Premium account — full tracks play natively.' : 'Free account — 30-second previews or Audius matches.')
+          ? (sp.premium ? 'Premium account — full tracks play natively.' : 'Free account — full tracks play via YouTube.')
           : 'Add a Client ID from the Spotify Developer Dashboard to read your playlists.',
         sp.connected
           ? el('button.btn.btn--soft.btn--sm', { type: 'button', onclick: () => { spotify.logout(); render(store.state.route, true); } }, 'Disconnect')

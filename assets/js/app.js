@@ -378,7 +378,7 @@
         toast({
           kind: 'success',
           title: 'Spotify connected',
-          text: sp.premium ? 'Premium detected — full tracks available.' : 'Free account — previews or Audius matches will be used.',
+          text: sp.premium ? 'Premium detected — full tracks available.' : 'Free account — songs will play in full from YouTube.',
         });
       } else if (spotify.isConnected()) {
         spotify.loadProfile().catch(() => {});

@@ -534,17 +534,109 @@
     return results;
   }
 
-  /** Best single match for a title/artist — used to make Spotify tracks playable. */
+  /**
+   * Resolve the top video for a search phrase using the official IFrame
+   * player's search playlist. This needs no API key and no third-party
+   * mirror, which makes it the most dependable way to turn "song name"
+   * into something playable — so it backstops every other route.
+   *
+   * A throwaway hidden player is used purely as a resolver; the video is
+   * then played normally, keeping Loru's own queue in control instead of
+   * letting YouTube auto-advance through search results.
+   */
+  async function resolveSearchTopResult(query) {
+    const YT = await ensureApi();
+
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:200px;height:120px;';
+    const mount = document.createElement('div');
+    holder.appendChild(mount);
+    document.body.appendChild(holder);
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let player = null;
+      let poll = null;
+
+      const finish = (fn) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (poll) clearInterval(poll);
+        try { player && player.destroy(); } catch (e) {}
+        holder.remove();
+        fn();
+      };
+
+      const timer = setTimeout(
+        () => finish(() => reject(new Error('YouTube did not answer that search in time.'))),
+        15000,
+      );
+
+      player = new YT.Player(mount, {
+        height: '120', width: '200',
+        playerVars: {
+          listType: 'search', list: query,
+          autoplay: 0, controls: 0, origin: location.origin,
+        },
+        events: {
+          onReady() {
+            let tries = 0;
+            poll = setInterval(() => {
+              tries += 1;
+              let data = null;
+              let list = null;
+              try { data = player.getVideoData(); list = player.getPlaylist(); } catch (e) {}
+              const videoId = (data && data.video_id) || (Array.isArray(list) && list[0]) || null;
+
+              if (videoId) {
+                finish(() => resolve({
+                  videoId,
+                  title: (data && data.title) || null,
+                  artist: (data && data.author) || null,
+                }));
+              } else if (tries > 28) {
+                finish(() => reject(new Error('YouTube returned no results for that search.')));
+              }
+            }, 250);
+          },
+          onError(e) {
+            finish(() => reject(new Error(`YouTube refused that search (code ${e && e.data}).`)));
+          },
+        },
+      });
+    });
+  }
+
+  /**
+   * Best playable match for a title/artist. Tries the metadata routes for
+   * richer results, then falls back to the key-less official resolver so a
+   * song stays playable even with no API key and every mirror down.
+   */
   async function findMatch(title, artist) {
-    const results = await search(`${title} ${artist}`.trim(), { limit: 5 }).catch(() => []);
-    if (!results.length) return null;
-    const want = String(title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-    return results.find((t) => t.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().includes(want)) || results[0];
+    const query = `${title} ${artist}`.trim();
+
+    try {
+      const results = await search(query, { limit: 5 });
+      if (results.length) {
+        const want = String(title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        return results.find((t) => t.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().includes(want))
+          || results[0];
+      }
+    } catch (e) { /* fall through to the official resolver */ }
+
+    const top = await resolveSearchTopResult(query).catch(() => null);
+    if (!top) return null;
+    return makeTrack({
+      videoId: top.videoId,
+      title: top.title || title,
+      artist: top.artist || artist,
+    });
   }
 
   L.youtube = {
     parse, thumb, watchUrl, ensureApi, fetchMeta, cleanTitle, toTrack,
     resolvePlaylist, resolveVideo, hydrateTracks, searchUrl,
-    search, findMatch, mirrorList, testSources, DEFAULT_MIRRORS,
+    search, findMatch, resolveSearchTopResult, mirrorList, testSources, DEFAULT_MIRRORS,
   };
 })(window.Loru);

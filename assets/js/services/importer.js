@@ -194,7 +194,13 @@
 
   /**
    * Make a track playable.
-   * Spotify without Premium → 30s preview, else a matching Audius track.
+   *
+   * Spotify blocks full-length playback outside its own app unless the
+   * listener has Premium, so for everyone else the order is:
+   *   full YouTube match → Audius match → 30-second preview.
+   * The YouTube step ends in a key-less official-player lookup, so it
+   * succeeds even with no API key and every public mirror offline.
+   *
    * @returns {Promise<{track:object, note?:string}>}
    */
   async function resolvePlayable(track) {
@@ -230,14 +236,16 @@
       };
     }
 
+    /* Last resort before giving up: a 30-second preview is still better
+       than silence, but only if every full-length route failed. */
     if (track.previewUrl) {
       return {
         track: { ...track, playbackVia: 'preview', streamUrl: track.previewUrl, duration: 30 },
-        note: 'Only a 30-second Spotify preview is available for this one.',
+        note: 'Could not find a full version, so this is Spotify’s 30-second preview.',
       };
     }
 
-    const err = new Error(`No playable source found for “${track.title}”.`);
+    const err = new Error(`Couldn’t find anywhere to stream “${track.title}”. YouTube may be unreachable right now.`);
     err.permalink = track.permalink;
     throw err;
   }

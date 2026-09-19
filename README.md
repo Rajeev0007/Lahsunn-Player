@@ -1,238 +1,215 @@
-# Lahsunn Player
+# Loru Player
 
-Self-hosted, privacy-respecting web music player. Search, queue, library, and **live synced lyrics**, in a purple, fully responsive UI.
+An online music player for phone, tablet and desktop. Loru never touches local
+files — it links the playlists you already have and streams each track from the
+service that hosts it.
 
-Made by **Rajeev**.
+```
+┌──────────┬──────────────────────────────────┬─────────┐
+│ sidebar  │ home · search · library · link   │ queue   │
+├──────────┴──────────────────────────────────┴─────────┤
+│ player bar — seek · shuffle · repeat · volume · full  │
+└───────────────────────────────────────────────────────┘
+```
 
-## How it works
+## What it does
 
-The browser never talks to YouTube directly. Every catalog and stream request goes through this Node server.
+| Source | Setup needed | What you get |
+| --- | --- | --- |
+| **Audius** | none | Full-length streaming, search, trending, genre and mood mixes. Powers the browse experience out of the box. |
+| **YouTube** | none | Paste any public playlist, mix or video link. Plays through YouTube's official embedded player. |
+| **Spotify** | your own free Client ID | Reads your playlists, albums and liked songs. Full tracks need Premium; otherwise Loru plays the 30-second preview or finds a matching Audius stream. |
+| **Direct links** | none | Any reachable MP3/AAC/OGG/FLAC URL, plus live internet radio streams. |
 
-1. **yt-dlp** (server-side) — searches YouTube and resolves full-length audio URLs.
-2. **`/api/stream`** — proxies that audio with HTTP range support so seeking works instantly and without lag.
-3. **LRCLIB** — synced lyrics via `/api/lyrics`.
+Everything else — playlists you build, liked songs, history, settings — lives in
+your browser's local storage. There is no Loru account and no backend.
 
-No Lavalink required. No external audio nodes. Just yt-dlp and Node.
+## Running it
 
-## Setup
-
-Needs **Node 20+**. **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** is auto-downloaded if missing. `ffmpeg` is optional.
+Loru is a static site with no build step, but it **must be served over HTTP**.
+Opening `index.html` from the file system breaks the YouTube player and the
+Spotify login redirect.
 
 ```bash
-cp .env.example .env
-# edit .env if you want playlist importers (Spotify, Last.fm)
-
-npm install
-npm run build     # required — builds the UI into client/www
-npm start
+cd loru-player
+python3 -m http.server 4173
+# then open http://127.0.0.1:4173/index.html
 ```
 
-Open http://localhost:3000
+Any static host works: Vercel, GitHub Pages, Netlify, S3, nginx. Upload the
+folder as-is.
 
-| Variable | Meaning |
-|---|---|
-| `MAX_TRACK_MINUTES` | Hide results longer than this (default 20) |
-| `YTDLP_AUTO_DOWNLOAD` | Fetch yt-dlp automatically if missing (default `true`) |
-| `YTDLP_PATH` | Use a specific yt-dlp binary instead of searching `PATH` |
-| `CORS_ORIGIN` | Only if the UI is on another host. Comma-separated origins, or `*` |
-| `VITE_API_BASE` | Build-time. Point the UI at a backend on another host |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Optional. Spotify playlist import |
-| `LASTFM_API_KEY` | Optional. Last.fm loved/top/recent track import |
-| `IMPORT_MAX_TRACKS` | Cap on tracks per import (default 500) |
+## Deploying to Vercel
 
-See `.env.example` for the optional yt-dlp tuning settings.
+Loru is static with no build step, so it runs on the free Hobby plan untouched.
+Hash-based routing (`#/library`) means **no SPA rewrite rules are needed** —
+deep links work out of the box.
 
-## Deploying
+**From a Git repo (recommended):** import the repo in the Vercel dashboard.
 
-> **This app cannot run on a serverless host such as Vercel, Netlify, or Cloudflare Pages.**
-> It needs a long-lived process that can spawn `yt-dlp` and stream audio. On a
-> static/serverless host the UI loads but every `/api/*` call 404s, so the page
-> shows zero songs.
+- Framework Preset: **Other**
+- Build Command: **leave empty**
+- Output Directory: **leave empty** (the repo root is served)
+- If `loru-player/` is a subfolder of the repo, set **Root Directory** to
+  `loru-player`
 
-### Recommended: one container, everything works
+**From the CLI:**
 
 ```bash
-docker build -t lahsunn-player .
-docker run -p 3000:3000 lahsunn-player
+npm i -g vercel
+cd loru-player
+vercel          # preview deployment
+vercel --prod   # production
 ```
 
-The image installs `yt-dlp` and `ffmpeg` and serves the UI and API together.
-`render.yaml` is a ready-made blueprint for [Render](https://render.com); the same
-image works on Railway, Fly.io, Koyeb, or any VPS.
+`vercel.json` sets `cleanUrls` (so `/index.html` canonically redirects to `/`),
+cache headers for `assets/`, and a few safe security headers. `.vercelignore`
+keeps the dev-only `tools/` folder out of the deployment.
 
-### Alternative: UI on Vercel, backend elsewhere
+### Spotify on a deployed site
 
-Only do this if you specifically want the UI on Vercel. You still need the
-container above running somewhere for the API.
+Two things change once you are on a real domain:
 
-1. Deploy the container and note its URL, e.g. `https://api.example.com`.
-2. On that backend set `CORS_ORIGIN` to your Vercel URL:
-   `CORS_ORIGIN=https://your-app.vercel.app`
-3. In Vercel, set the build-time variable `VITE_API_BASE=https://api.example.com`.
+1. **Register the production URL as a Redirect URI.** Use the exact value shown
+   in **Settings → Spotify → Redirect URI**, which will be
+   `https://your-project.vercel.app/` — with the trailing slash and no
+   `index.html`. Loru canonicalises this, so one entry covers visitors who
+   arrive at either `/` or `/index.html`.
+2. **Preview deployments get a different URL every time** (for example
+   `your-project-a1b2c3.vercel.app`), and Spotify only accepts redirect URIs you
+   registered. Sign in to Spotify on the production domain, or add each preview
+   URL you actually want to test. A custom domain avoids the problem entirely —
+   register that instead and it never changes.
 
-`vercel.json` pins the build command and output directory so Vercel does not
-apply its Vite preset (which expects `dist`, not `client/www`).
+Hosting on Vercel also satisfies Spotify's requirement that redirect URIs use
+HTTPS (only `http://localhost` and `http://127.0.0.1` are exempt), so Spotify
+login works on a deployed Loru but would not on a plain `http://` host.
 
-### yt-dlp is installed for you
+> **Note on CSP:** no Content-Security-Policy header is set. Loru loads scripts
+> and media from YouTube, Spotify's SDK, Audius content nodes and arbitrary
+> user-supplied stream URLs, so a policy tight enough to be useful is easy to
+> get wrong and would break playback. Add one deliberately if you need it, and
+> test every source afterwards.
 
-Nothing plays without `yt-dlp`, and forgetting to install it is the most common
-reason a fresh deploy is silent. If it is not on `PATH`, the server downloads the
-official standalone build once at startup and caches it — so a plain Node host
-works too, not just the Docker image. `GET /api/status` reports which copy is in
-use (`PATH`, `YTDLP_PATH`, `cached download`, or `auto-downloaded`) and the exact
-error if it could not be obtained. Set `YTDLP_AUTO_DOWNLOAD=false` to opt out.
+Add `?demo=1` to the URL to fill the app with a sample catalogue that works with
+no connection at all — useful for previewing the interface. The same switch
+lives in **Settings → Playback → Demo content**.
 
-The Docker image still installs `yt-dlp` and `ffmpeg` properly, and remains the
-most reliable option.
+## Connecting Spotify
 
-## Importing playlists
+Spotify requires every application to use its own Client ID, so each listener
+sets this up once. It takes about a minute.
 
-Open **Playlists** and paste any of these:
+1. Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+   and create an app (any name).
+2. Add your Loru address as a **Redirect URI**, exactly as shown in
+   **Settings → Spotify → Redirect URI**, for example
+   `https://yoursite.example/index.html`.
+3. Enable **Web API** and **Web Playback SDK**, then save.
+4. Copy the Client ID into Loru and press connect.
 
-| Paste | Needs |
-|---|---|
-| `https://www.youtube.com/playlist?list=…` | nothing — works out of the box |
-| `https://open.spotify.com/playlist/…` or `/album/…` | `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` |
-| `lastfm:username` — also `/top`, `/recent` | `LASTFM_API_KEY` |
-| `https://www.last.fm/user/username` | `LASTFM_API_KEY` |
+Loru uses the Authorization Code + PKCE flow, so no client secret is involved
+and nothing is sent to a server. The token is stored in your browser only.
 
-Imported playlists are stored in your browser, not on the server. The Playlists
-screen shows a dot next to each service so you can see at a glance which
-importers are configured.
+**Playback reality check:** Spotify does not permit third-party web players to
+stream full tracks without Premium. With a free account Loru still imports your
+playlists and plays each song using its 30-second preview, or the closest
+full-length match it can find on Audius. This is a platform restriction, not a
+missing feature.
 
-Spotify links use the [client-credentials flow](https://developer.spotify.com/documentation/web-api/tutorials/client-credentials-flow)
-— create an app in the Spotify dashboard, no redirect URI or user login required.
+## Services that cannot be supported
 
-Imported tracks only need a title and artist: playback resolves them at play
-time by searching YouTube for a matching video.
+Apple Music, SoundCloud, Deezer, Tidal, Amazon Music, Bandcamp and Mixcloud do
+not allow third-party web playback of their catalogues. Pasting one of those
+links shows an explanation and offers to search the same titles on Audius
+instead.
 
-## Background playback
+## Interface notes
 
-Audio continues when the tab is in the background, and the OS lock screen /
-notification controls are wired up through the
-[Media Session API](https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API)
-— play, pause, next, previous, stop, seek, and a working scrubber.
+- **Desktop** — three columns: navigation, content, and an optional queue panel.
+- **Tablet** — the sidebar collapses to an icon rail.
+- **Phone** — sidebar becomes a drawer, a mini player sits above a bottom tab
+  bar, and tapping it opens the full-screen player (swipe down to dismiss).
+- Light and dark themes, five accent ramps, and a live audio visualizer.
+- OS media keys and lock-screen controls work through the Media Session API.
 
-For the most reliable background playback on a phone, **install it as an app**:
-open the site and choose *Add to Home Screen* (iOS) or *Install app* (Android).
-It ships a web manifest and a service worker, so it installs as a standalone PWA
-and the shell loads offline. Installation requires HTTPS, which Render provides.
+### Keyboard shortcuts
 
-The service worker never caches `/api/`, so playlists, search and the audio
-stream always come from the network — caching a partial range response would
-break seeking.
+| Key | Action | Key | Action |
+| --- | --- | --- | --- |
+| `Space` | Play / pause | `M` | Mute |
+| `→` `←` | Seek 5s (`Shift` 30s) | `L` | Like current track |
+| `↑` `↓` | Volume | `Q` | Toggle queue |
+| `N` `P` | Next / previous | `F` | Full-screen player |
+| `S` | Shuffle | `/` | Focus search |
+| `R` | Repeat mode | `Esc` | Close overlay |
+| `G` then `H` / `L` / `K` | Go to home / library / link sources | | |
 
-## Discord presence
+## Project layout
 
-Shows what you are listening to on your Discord profile.
+```
+loru-player/
+├── index.html              app shell, icon sprite, diagnostics hook
+├── vercel.json             cleanUrls, cache + security headers
+├── .vercelignore           keeps tools/ out of deployments
+├── assets/
+│   ├── css/
+│   │   ├── theme.css       design tokens, reset, ambient background
+│   │   ├── layout.css      app shell, player bar, responsive rules
+│   │   └── components.css  buttons, cards, rows, modals, toasts
+│   ├── img/favicon.svg
+│   └── js/
+│       ├── utils.js        DOM helpers, formatting, storage, toasts, sliders
+│       ├── store.js        reactive state + persisted library
+│       ├── catalog.js      browse data + offline demo catalogue
+│       ├── services/
+│       │   ├── audius.js   key-less search / trending / streaming
+│       │   ├── youtube.js  IFrame player + playlist import via oEmbed
+│       │   ├── spotify.js  PKCE auth, Web API, Web Playback SDK
+│       │   └── importer.js link detection and routing
+│       ├── engine.js       queue + four playback backends
+│       ├── visualizer.js   canvas spectrum with synthetic fallback
+│       ├── ui/
+│       │   ├── components.js  shared renderers
+│       │   ├── views.js       every screen
+│       │   └── player.js      player bar, queue, full-screen player
+│       └── app.js          router, theme, keyboard, boot
+└── tools/                  dev-only capture helpers (not needed at runtime)
+```
 
-**Read this first:** a website cannot set your Discord presence on its own. Rich
-Presence is delivered over a local IPC socket that the Discord *desktop app*
-opens on your own computer. A browser tab cannot open that socket, and neither
-can this server — it is not your machine.
+### Playback backends
 
-So it works the same way every other "browser to Discord" integration does — a
-small companion program on your PC:
+`engine.js` keeps one queue and switches transport per track:
 
-1. Create an application at
-   [discord.com/developers/applications](https://discord.com/developers/applications)
-   and copy its **Application ID**. The application's *name* is what Discord
-   displays, so name it something like `Lahsunn Player`. Optionally upload an
-   image called `logo` under **Rich Presence → Art Assets** as a cover fallback.
-2. In the player open **Settings → Discord presence**, turn it **On**, and copy
-   the command shown there.
-3. On the computer where Discord is running, from a clone of this repo:
+| Track source | Backend |
+| --- | --- |
+| Audius, direct URL, Spotify preview | `HTMLAudioElement` |
+| YouTube | YouTube IFrame Player API |
+| Spotify with Premium | Spotify Web Playback SDK |
+| Demo catalogue | WebAudio synth pad (offline) |
 
-   ```bash
-   node tools/discord-presence.mjs \
-     --url https://your-app.onrender.com \
-     --key <key from Settings> \
-     --client-id <your Application ID>
-   ```
+If a stream is served without CORS headers the engine transparently reloads it
+without `crossOrigin` so audio keeps working, and the visualizer falls back to a
+synthetic waveform rather than going silent.
 
-Leave it running. It shows the track, artist, album art and a live progress bar,
-and clears the presence when you stop the music or press Ctrl+C.
+## Development helpers
 
-How it works: the browser posts the current track to `/api/presence` under an
-opaque key it generated; the companion polls that key and pushes it to the local
-Discord socket. The key is a capability — anyone holding it can see what that
-browser is playing — so it is random, and **Regenerate** in Settings invalidates
-the old one. Nothing is stored for longer than 90 seconds and nothing is written
-to disk.
-
-The companion needs no dependencies, only Node 18+. It reconnects if Discord
-restarts, keeps running if the player is unreachable, and respects Discord's
-rate limit on presence updates.
-
-> Discord renders `Listening to <app name>` on most builds. Some older desktop
-> builds ignore the activity type and show `Playing` instead — that is a Discord
-> client limitation, not something the app can override.
-
-## Troubleshooting — "no songs are showing"
-
-Run the built-in diagnostic:
+`tools/` contains scripts used to verify rendering in headless Chrome:
 
 ```bash
-npm run doctor
+tools/capture.sh              # one route at three viewports
+tools/capture-all.sh          # every route, reports JS errors per page
+tools/capture-states.sh       # playback, queue, full-screen, modals
 ```
 
-It prints exactly what is wrong: whether yt-dlp is available, which importers are
-configured, and a live test search. The same information is available at runtime
-from `GET /api/status`, and the UI shows it as a banner instead of rendering an
-empty page.
+Runtime script errors are collected into `window.__loruErrors` and mirrored into
+a hidden `#__diag` element, which is what those scripts read.
 
-If the banner says **"Nothing can play yet"**, that is `yt-dlp` missing. The
-server tries to fetch it itself, so hit retry first. If it keeps failing, the host
-is probably blocking the download or has a read-only filesystem — redeploy using
-the **Docker runtime**, which installs `yt-dlp` and `ffmpeg` directly.
+## Known limits
 
-On Render specifically: a service created as a **Node** app will not have
-`yt-dlp`. Either switch the service's runtime to **Docker** (this repo has a
-`Dockerfile`), or leave `YTDLP_AUTO_DOWNLOAD=true` and let the server fetch it.
-
-Common causes:
-
-- **`yt-dlp` missing.** Search and playback both need it. The server auto-downloads
-  it at startup when `YTDLP_AUTO_DOWNLOAD=true` (the default).
-- **UI not built.** Running `npm start` without `npm run build` serves a page telling you so.
-
-## Scripts
-
-- `npm run build` — Vite production build into `client/www`
-- `npm start` — serve API + UI on `PORT` (default 3000)
-- `npm run dev` — same server without the production flag
-- `npm run doctor` — diagnose yt-dlp and importers, run a test search
-
-## Keyboard shortcuts
-
-`Space` play/pause · `←`/`→` seek 10s · `Shift+←`/`→` prev/next · `↑`/`↓` volume ·
-`M` mute · `S` shuffle · `R` repeat · `L` lyrics · `Q` queue · `/` or `Ctrl+K` search · `Esc` close
-
-## Layout
-
-```
-server/index.js                   API, yt-dlp search/stream, importers, stream proxy, doctor
-client/src/App.jsx                React UI
-client/src/styles.css             purple theme + responsive breakpoints
-client/public/logo.svg            brand mark
-client/public/sw.js               service worker (PWA install, offline shell)
-client/public/manifest.webmanifest
-client/vite.config.js
-tools/discord-presence.mjs        Discord Rich Presence companion (run on your PC)
-Dockerfile / render.yaml          container deploy with yt-dlp + ffmpeg
-.env.example                      all configuration, annotated
-```
-
-## Branding
-
-The logo lives at `client/public/logo.svg` (and the favicon at `client/public/icon.svg`).
-To use a different image, drop it into `client/public/` and change the single
-`BRAND_LOGO` constant at the top of `client/src/App.jsx`.
-
-## License
-
-See [LICENSE](LICENSE). Made by Rajeev.
-
-## Credits
-
-This web player has been made by **Rajeev**. Synced lyrics provided by [LRCLIB](https://lrclib.net).
+- YouTube search needs an API key, so Loru links out to YouTube search rather
+  than listing results inline. Playlist and video **links** work without a key.
+- YouTube videos whose uploader disables embedding are skipped automatically.
+- Imported playlists are snapshots. Use **Refresh** on a playlist to re-read it
+  from the source.
+- Library data is per-browser. Use **Settings → Export library** to move it.

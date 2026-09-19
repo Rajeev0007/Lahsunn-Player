@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Loru preview harness</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #07070c; overflow: hidden; }
+  iframe { display: block; border: 0; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<!--
+  Development harness. Loads the app in an iframe and drives its public API so
+  interactive states (playback, queue, full-screen player) can be screenshotted
+  in headless Chrome. Not part of the shipped app.
+
+  Usage: tools/preview.html?do=<action>&route=<hash>
+  Actions: play | np | queue | modal | shortcuts | light
+-->
+<iframe id="app" title="Loru Player"></iframe>
+<script>
+  const params = new URLSearchParams(location.search);
+  const action = params.get('do') || '';
+  const route = params.get('route') || '/home';
+  const frame = document.getElementById('app');
+  // `src=dir` loads the app via its directory URL instead of /index.html,
+  // which is how a host with cleanUrls serves it.
+  const base = params.get('src') === 'dir' ? '../' : '../index.html';
+  frame.src = base + '?demo=1#' + route;
+
+  function report(text) {
+    document.title = 'harness: ' + text;
+    let node = document.getElementById('status');
+    if (!node) {
+      node = document.createElement('pre');
+      node.id = 'status';
+      node.hidden = true;
+      document.body.appendChild(node);
+    }
+    node.textContent = text;
+  }
+
+  frame.addEventListener('load', () => {
+    setTimeout(() => {
+      const win = frame.contentWindow;
+      const L = win.Loru;
+      if (!L) { report('Loru API missing'); return; }
+
+      // Headless capture never advances CSS transitions, so pin every
+      // element to its final state before screenshotting.
+      const freeze = win.document.createElement('style');
+      freeze.textContent = '*,*::before,*::after{transition:none !important;animation-duration:.001ms !important;}';
+      win.document.head.appendChild(freeze);
+      let immediate = '';
+      setTimeout(() => {
+        immediate = 'ctxAfterAction=' + !!win.document.querySelector('.ctx')
+          + ' modalOpen=' + !win.document.getElementById('modalRoot').hidden;
+      }, 60);
+
+      setTimeout(() => {
+        const sheet = win.document.getElementById('npSheet');
+        report([
+          'action=' + (action || 'none'),
+          'loadedFrom=' + win.location.pathname,
+          'spotifyRedirectUri=' + L.spotify.redirectUri(),
+          immediate,
+          'ctxNow=' + !!win.document.querySelector('.ctx'),
+          'playing=' + L.store.state.playing,
+          'track=' + ((L.store.currentTrack() || {}).title || '-'),
+          'npOpen=' + L.store.state.npOpen,
+          'sheetAttr=' + (sheet ? sheet.dataset.open : '?'),
+          'queueOpen=' + L.store.state.queueOpen,
+          'errors=' + (win.__loruErrors || []).join(' | '),
+        ].join('\n'));
+      }, 1400);
+
+      const playlist = L.store.state.playlists.find((p) => p.id === 'demo-pl-1')
+        || L.store.state.playlists[0];
+      const playDemo = () => {
+        if (!playlist) return;
+        L.engine.playCollection(playlist.tracks, 0, { type: 'playlist', id: playlist.id, name: playlist.name });
+      };
+
+      switch (action) {
+        case 'play':
+          playDemo();
+          break;
+        case 'np':
+          playDemo();
+          setTimeout(() => L.player.openNowPlaying(), 500);
+          break;
+        case 'queue':
+          playDemo();
+          setTimeout(() => L.player.toggleQueue(true), 500);
+          break;
+        case 'modal':
+          L.ui.openAddToPlaylist([playlist.tracks[0]]);
+          break;
+        case 'shortcuts':
+          L.app.showShortcuts();
+          break;
+        case 'light':
+          L.app.setTheme('light');
+          L.views.render(L.store.state.route, true);
+          break;
+        case 'spotify':
+          L.views.openSpotifySetup();
+          break;
+        case 'menu':
+          L.ui.openTrackMenu({ clientX: 420, clientY: 300 }, playlist.tracks[0], { tracks: playlist.tracks, index: 0 });
+          break;
+        default:
+          break;
+      }
+    }, 900);
+  });
+</script>
+</body>
+</html>

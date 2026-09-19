@@ -980,3 +980,47 @@
 }
 .source-badge[data-source="soundcloud"] { color: #ff7700; border-color: color-mix(in oklab, #ff7700 32%, transparent); background: color-mix(in oklab, #ff7700 12%, transparent); }
 .source-badge[data-source="itunes"] { color: #fc3c44; border-color: color-mix(in oklab, #fc3c44 32%, transparent); background: color-mix(in oklab, #fc3c44 12%, transparent); }
+
+
+/* ─────────────────── Source switch (top bar) ─────────────────── */
+.source-switch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  flex: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+}
+.source-switch__btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 32px; padding: 0 13px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm); font-weight: 600;
+  color: var(--ink-3);
+  white-space: nowrap;
+  transition: color .12s linear, background .12s linear;
+}
+.source-switch__btn .icon { width: 16px; height: 16px; }
+.source-switch__btn:hover { color: var(--ink); }
+.source-switch__btn.is-active {
+  background: var(--accent-grad);
+  color: var(--accent-ink);
+}
+.source-switch__btn.is-active .icon { color: currentColor; }
+
+/* Tablet: icons only, labels are redundant next to the glyphs */
+@media (max-width: 1180px) {
+  .source-switch__btn span { display: none; }
+  .source-switch__btn { padding: 0 11px; }
+}
+
+/* Phone: moves below the search field so nothing is cramped */
+@media (max-width: 768px) {
+  .topbar { flex-wrap: wrap; height: auto; padding-block: 10px 8px; row-gap: 8px; }
+  .searchbar { order: 2; flex-basis: 100%; }
+  .source-switch { order: 3; width: 100%; justify-content: space-between; }
+  .source-switch__btn { flex: 1; justify-content: center; padding: 0; }
+  .source-switch__btn span { display: inline; font-size: var(--fs-xs); }
+  .view-wrap { scroll-padding-top: 8px; }
+}

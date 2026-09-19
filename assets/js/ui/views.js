@@ -50,7 +50,8 @@
       render(store.state.route, true);
     },
 
-    get youtubeFirst() { return store.state.settings.defaultSource !== 'audius'; },
+    get source() { return store.state.settings.defaultSource || 'youtube'; },
+    get youtubeFirst() { return this.source === 'youtube'; },
 
     async trending(genre) {
       if (this.demo) {
@@ -60,27 +61,50 @@
       return genre ? audius.trending({ genre, limit: 14 }) : audius.trending({ limit: 14 });
     },
 
-    /** Charts for the home screen — YouTube first, Audius as the backstop. */
+    /** Charts for the home screen, following the selected source. */
     async charts() {
       if (this.demo) { catalog.demo.activate(); return { source: 'demo', tracks: catalog.demo.trending(14) }; }
-      if (this.youtubeFirst) {
+
+      const attempts = {
+        youtube: () => youtube.trending({ limit: 16 }),
+        apple: () => L.itunes.topSongs({ limit: 16 }),
+        audius: () => audius.trending({ limit: 14 }),
+      };
+
+      // Selected source first, then the others, so the row is never empty
+      const order = [this.source, 'youtube', 'apple', 'audius']
+        .filter((s, i, a) => a.indexOf(s) === i);
+
+      let lastError = null;
+      for (const src of order) {
         try {
-          return { source: 'youtube', tracks: await youtube.trending({ limit: 16 }) };
-        } catch (e) { /* fall back to Audius so the row still fills */ }
+          const tracks = await attempts[src]();
+          if (tracks && tracks.length) return { source: src, tracks };
+        } catch (e) { lastError = e; }
       }
-      return { source: 'audius', tracks: await audius.trending({ limit: 14 }) };
+      throw lastError || new Error('No music service responded.');
     },
 
-    /** A themed mix: YouTube search when it is the default source. */
+    /** A themed mix from the selected source, with fallbacks. */
     async mix(query) {
       if (this.demo) { catalog.demo.activate(); return catalog.demo.search(query); }
-      if (this.youtubeFirst) {
+
+      const attempts = {
+        youtube: () => youtube.search(query, { limit: 24 }),
+        apple: () => L.itunes.search(query, { limit: 24 }),
+        audius: () => audius.searchTracks(query, { limit: 30 }),
+      };
+      const order = [this.source, 'youtube', 'apple', 'audius']
+        .filter((s, i, a) => a.indexOf(s) === i);
+
+      let lastError = null;
+      for (const src of order) {
         try {
-          const tracks = await youtube.search(query, { limit: 24 });
-          if (tracks.length) return tracks;
-        } catch (e) { /* fall through */ }
+          const tracks = await attempts[src]();
+          if (tracks && tracks.length) return tracks;
+        } catch (e) { lastError = e; }
       }
-      return audius.searchTracks(query, { limit: 30 });
+      throw lastError || new Error('No music service responded.');
     },
 
     async underground() {

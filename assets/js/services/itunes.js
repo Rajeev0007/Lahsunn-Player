@@ -99,5 +99,51 @@
     return results.find((t) => t.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === want) || results[0];
   }
 
-  L.itunes = { search, lookup, normalize };
+  /**
+   * Apple's public "most played" feed. Returns chart entries, which carry no
+   * preview URL, so each is matched back through Search to become playable.
+   */
+  async function topSongs({ limit = 16, country = 'us' } = {}) {
+    const cached = L.storage.session.get('itunes:top', null);
+    if (cached && cached.length) return cached;
+
+    const feed = await L.fetchJSON(
+      `https://rss.applemarketingtools.com/api/v2/${country}/music/most-played/${limit}/songs.json`,
+      { timeout: 9000 },
+    );
+    const entries = (feed && feed.feed && feed.feed.results) || [];
+    if (!entries.length) return [];
+
+    // Resolve previews in small batches so the row fills quickly
+    const out = [];
+    for (let i = 0; i < entries.length; i += 4) {
+      const batch = entries.slice(i, i + 4);
+      const found = await Promise.all(batch.map((e) => lookup(e.name, e.artistName).catch(() => null)));
+      found.forEach((t, j) => {
+        if (t) out.push(t);
+        else if (batch[j]) {
+          // Keep the chart entry even without a preview; the ⋯ menu can still
+          // play the full song from YouTube.
+          out.push({
+            id: 'itunes-chart-' + batch[j].id,
+            source: 'itunes',
+            title: batch[j].name,
+            artist: batch[j].artistName,
+            album: '',
+            artwork: (batch[j].artworkUrl100 || '').replace('100x100bb', '512x512bb') || null,
+            duration: 0,
+            previewUrl: null,
+            permalink: batch[j].url || null,
+            previewOnly: true,
+            needsMatch: true,
+          });
+        }
+      });
+    }
+
+    if (out.length) L.storage.session.set('itunes:top', out);
+    return out;
+  }
+
+  L.itunes = { search, lookup, topSongs, normalize };
 })(window.Loru);

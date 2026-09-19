@@ -184,6 +184,18 @@ window.__loruErrors = [];
         <kbd class="searchbar__kbd">/</kbd>
       </form>
 
+      <div class="source-switch" id="sourceSwitch" role="radiogroup" aria-label="Play music from">
+        <button class="source-switch__btn is-active" data-source="youtube" role="radio" aria-checked="true" title="YouTube — every song, full length">
+          <svg class="icon"><use href="#i-youtube"/></svg><span>YouTube</span>
+        </button>
+        <button class="source-switch__btn" data-source="apple" role="radio" aria-checked="false" title="Apple Music — best metadata, 30s previews">
+          <svg class="icon"><use href="#i-apple"/></svg><span>Apple</span>
+        </button>
+        <button class="source-switch__btn" data-source="audius" role="radio" aria-checked="false" title="Audius — free and ad-free, independent artists">
+          <svg class="icon"><use href="#i-wave"/></svg><span>Audius</span>
+        </button>
+      </div>
+
       <div class="topbar__right">
         <button class="btn btn--ghost btn--icon-left topbar__link" id="btnQuickLink">
           <svg class="icon"><use href="#i-link"/></svg><span>Link playlist</span>

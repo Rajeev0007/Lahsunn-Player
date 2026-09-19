@@ -226,35 +226,32 @@ ul, ol { list-style: none; padding: 0; }
     radial-gradient(120% 80% at 50% -20%, color-mix(in oklab, var(--accent-1) 10%, transparent), transparent 60%),
     linear-gradient(180deg, var(--bg-2), var(--bg) 42%);
 }
+/* Large blur radii are the single most expensive thing this page paints, and
+   animating them keeps the compositor busy on every frame. Radial gradients
+   give nearly the same look for a fraction of the cost, so no blur filter is
+   used at all and only one layer drifts. */
 .ambient__blob {
   position: absolute; border-radius: 50%;
-  filter: blur(80px);
-  opacity: .5;
-  will-change: transform;
+  opacity: .4;
 }
 .ambient__blob--1 {
-  width: 46vmax; height: 46vmax; top: -16vmax; left: -10vmax;
-  background: radial-gradient(circle at 30% 30%, var(--accent-1), transparent 65%);
-  animation: drift1 26s var(--ease) infinite alternate;
+  width: 60vmax; height: 60vmax; top: -22vmax; left: -14vmax;
+  background: radial-gradient(circle at 35% 35%, color-mix(in oklab, var(--accent-1) 62%, transparent), transparent 62%);
+  animation: drift1 40s var(--ease) infinite alternate;
+  will-change: transform;
 }
 .ambient__blob--2 {
-  width: 38vmax; height: 38vmax; top: 10vmax; right: -12vmax;
-  background: radial-gradient(circle at 60% 40%, var(--accent-2), transparent 65%);
-  opacity: .34;
-  animation: drift2 32s var(--ease) infinite alternate;
+  width: 50vmax; height: 50vmax; top: 6vmax; right: -16vmax;
+  background: radial-gradient(circle at 60% 40%, color-mix(in oklab, var(--accent-2) 46%, transparent), transparent 62%);
+  opacity: .26;
 }
-.ambient__blob--3 {
-  width: 30vmax; height: 30vmax; bottom: -12vmax; left: 32%;
-  background: radial-gradient(circle at 50% 50%, var(--accent-3), transparent 65%);
-  opacity: .22;
-  animation: drift3 38s var(--ease) infinite alternate;
-}
-.ambient__grain {
-  position: absolute; inset: -50%;
-  opacity: .16;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
-  mix-blend-mode: overlay;
-}
+/* Third layer removed everywhere: it cost a full-screen composite for a
+   gradient almost nobody could perceive. */
+.ambient__blob--3 { display: none; }
+
+/* The grain overlay used mix-blend-mode across the whole viewport, which
+   forced the entire page into a separate compositing pass on every scroll. */
+.ambient__grain { display: none; }
 [data-theme="light"] .ambient__blob { opacity: .3; }
 [data-theme="light"] .ambient__grain { opacity: .05; }
 
@@ -267,10 +264,22 @@ ul, ol { list-style: none; padding: 0; }
    ============================================================ */
 /* Large blurs and a full-page blend layer are the most expensive things we
    paint. Phones get a cheaper background so scrolling stays smooth. */
+/* Phones: hold the background completely still and drop every backdrop
+   filter. Stacked blur layers behind a scrolling list is what made the
+   interface feel sluggish on mobile. */
 @media (max-width: 768px) {
-  .ambient__grain { display: none; }
-  .ambient__blob { filter: blur(48px); animation: none; }
-  .ambient__blob--3 { display: none; }
+  .ambient__blob { animation: none; will-change: auto; }
+  .topbar, .playerbar, .sidebar, .queue-panel, .toast, .modal-root, .np__bg::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .topbar { background: var(--bg); }
+  .playerbar, .tabbar { background: color-mix(in oklab, var(--bg) 96%, var(--accent-1)); }
+}
+
+/* Anyone who asked for less motion gets a completely static backdrop. */
+@media (prefers-reduced-motion: reduce) {
+  .ambient__blob { animation: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -105,6 +105,42 @@
   /* ============================================================
      Search bar
      ============================================================ */
+  /** Top-bar source switch: decides where browse and search pull from. */
+  function initSourceSwitch() {
+    const root = $('#sourceSwitch');
+    if (!root) return;
+
+    const paint = () => {
+      const current = store.state.settings.defaultSource || 'youtube';
+      $$('.source-switch__btn', root).forEach((btn) => {
+        const on = btn.dataset.source === current;
+        btn.classList.toggle('is-active', on);
+        btn.setAttribute('aria-checked', on ? 'true' : 'false');
+      });
+    };
+
+    const LABELS = {
+      youtube: 'YouTube — every song, played in full',
+      apple: 'Apple Music — 30-second previews, ad-free',
+      audius: 'Audius — free and ad-free, independent artists',
+    };
+
+    root.addEventListener('click', (e) => {
+      const btn = e.target.closest('.source-switch__btn');
+      if (!btn) return;
+      const source = btn.dataset.source;
+      if (source === store.state.settings.defaultSource) return;
+      store.updateSettings({ defaultSource: source });
+      paint();
+      views.invalidate();
+      views.render(store.state.route, true);
+      toast({ title: 'Now playing from', text: LABELS[source], timeout: 2600 });
+    });
+
+    store.on('settings', paint);
+    paint();
+  }
+
   function initSearch() {
     const form = $('#searchForm');
     const input = $('#searchInput');
@@ -379,6 +415,7 @@
     if (store.state.settings.demoMode) views.data.seed();
 
     initChrome();
+    initSourceSwitch();
     initSearch();
     initKeyboard();
     engine.init();

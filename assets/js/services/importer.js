@@ -231,6 +231,25 @@
    */
   async function resolvePlayable(track) {
     if (!track) throw new Error('No track to play.');
+
+    /* Apple chart entries carry no preview URL, and previews are only 30
+       seconds anyway, so fall through to a full YouTube version. */
+    if (track.source === 'itunes' && (!track.streamUrl || track.needsMatch)) {
+      const yt = await youtube.findMatch(track.title, track.artist).catch(() => null);
+      if (yt) {
+        return {
+          track: {
+            ...track, playbackVia: 'youtube', matchedFrom: 'itunes',
+            ytVideoId: yt.videoId, duration: yt.duration || track.duration,
+          },
+          note: `Playing the full track from YouTube: “${yt.title}”.`,
+        };
+      }
+      const err = new Error(`No playable source found for “${track.title}”.`);
+      err.permalink = track.permalink;
+      throw err;
+    }
+
     if (track.source !== 'spotify') return { track };
     if (store.state.connections.spotify.premium) return { track };
 

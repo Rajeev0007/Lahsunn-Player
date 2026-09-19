@@ -168,10 +168,42 @@
     ]);
   }
 
+  /**
+   * Renders a track list in pages. A 400-track playlist previously built 400
+   * rows — each with artwork, buttons and listeners — before the first paint,
+   * which is what made large playlists feel frozen.
+   */
   function trackList(tracks, opts = {}) {
+    const all = tracks || [];
+    const PAGE = opts.pageSize || 60;
     const list = el('div.tracklist');
     if (opts.head !== false) list.appendChild(tracklistHead());
-    (tracks || []).forEach((t, i) => list.appendChild(trackRow(t, { ...opts, index: i, tracks })));
+
+    let shown = 0;
+    const rows = el('div');
+    list.appendChild(rows);
+
+    function renderPage() {
+      const slice = all.slice(shown, shown + PAGE);
+      const frag = document.createDocumentFragment();
+      slice.forEach((t, i) => frag.appendChild(trackRow(t, { ...opts, index: shown + i, tracks: all })));
+      rows.appendChild(frag);
+      shown += slice.length;
+      if (more) more.hidden = shown >= all.length;
+      if (moreLabel) moreLabel.textContent = `Show ${Math.min(PAGE, all.length - shown)} more of ${all.length - shown} remaining`;
+    }
+
+    const moreLabel = el('span', { text: '' });
+    const more = all.length > PAGE
+      ? el('button.btn.btn--soft', {
+        type: 'button',
+        style: { margin: '16px auto 0', display: 'flex' },
+        onclick: () => renderPage(),
+      }, [icon('plus'), moreLabel])
+      : null;
+
+    renderPage();
+    if (more) list.appendChild(more);
     return list;
   }
 

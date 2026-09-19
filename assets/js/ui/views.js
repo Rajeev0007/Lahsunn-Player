@@ -1362,8 +1362,9 @@
     view.appendChild(ui.section({ title: 'About Loru Player' }, el('div.panel', [
       el('p.panel__desc', 'Loru Player is a browser-based music player. It never stores audio: each track is streamed from the service that hosts it, using that service’s official player or public API. Playlists you import are references, not copies.'),
       el('div.kbd-list', { style: { marginTop: '16px' } }, [
-        ['Version', '1.0.0'],
-        ['Streaming', 'Audius · YouTube · Spotify · direct URLs'],
+        ['Version', '1.1.0'],
+        ['Streaming', 'YouTube · Audius · Spotify · direct URLs'],
+        ['Lyrics', 'LRCLIB, fetched live'],
         ['Storage', 'Browser local storage only'],
         ['Accounts', 'None required'],
       ].map(([k, v]) => el('div.kbd-row', [el('span', { text: k }), el('span', { style: { color: 'var(--ink-3)' }, text: v })]))),

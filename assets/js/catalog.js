@@ -35,7 +35,6 @@
   const LINK_EXAMPLES = [
     { source: 'spotify', label: "Spotify playlist", value: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M' },
     { source: 'youtube', label: 'YouTube playlist', value: 'https://www.youtube.com/playlist?list=PLFgquLnL59alW3xmYiWRaoz0oM3H17Lth' },
-    { source: 'audius', label: 'Audius track or playlist', value: 'https://audius.co/trending' },
     { source: 'url', label: 'Direct audio / radio stream', value: 'https://stream.radioparadise.com/mp3-192' },
   ];
 

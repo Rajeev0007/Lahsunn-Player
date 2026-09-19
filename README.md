@@ -190,15 +190,16 @@ loru-player/
 │   │   ├── theme.css       design tokens, reset, ambient background
 │   │   ├── layout.css      app shell, player bar, responsive rules
 │   │   └── components.css  buttons, cards, rows, modals, toasts
-│   ├── img/favicon.svg
+│   ├── img/                logo variants + generated PNG icons
 │   └── js/
 │       ├── utils.js        DOM helpers, formatting, storage, toasts, sliders
 │       ├── store.js        reactive state + persisted library
 │       ├── catalog.js      browse data + offline demo catalogue
 │       ├── services/
 │       │   ├── audius.js   key-less search / trending / streaming
-│       │   ├── youtube.js  IFrame player + playlist import via oEmbed
+│       │   ├── youtube.js  search, IFrame player, key-less resolver
 │       │   ├── spotify.js  PKCE auth, Web API, Web Playback SDK
+│       │   ├── lyrics.js   synced lyrics via LRCLIB
 │       │   └── importer.js link detection and routing
 │       ├── engine.js       queue + four playback backends
 │       ├── visualizer.js   canvas spectrum with synthetic fallback
@@ -207,7 +208,16 @@ loru-player/
 │       │   ├── views.js       every screen
 │       │   └── player.js      player bar, queue, full-screen player
 │       └── app.js          router, theme, keyboard, boot
-└── tools/                  dev-only capture helpers (not needed at runtime)
+├── tools/                  dev-only helpers (not needed at runtime)
+├── DEPLOY.md               per-platform deployment guide
+├── package.json            no dependencies; no-op build for strict hosts
+├── netlify.toml            Netlify
+├── _headers                Cloudflare Pages / Netlify
+├── firebase.json           Firebase Hosting
+├── render.yaml             Render
+├── Dockerfile + nginx.conf self-hosting
+├── .nojekyll               stops GitHub Pages ignoring _headers
+└── .github/workflows/      GitHub Pages deployment
 ```
 
 ### Playback backends

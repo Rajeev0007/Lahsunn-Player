@@ -236,6 +236,79 @@
   }
 
   /* ============================================================
+     Touch interactions
+     ------------------------------------------------------------
+     Delegated from the document so every current and future element
+     is covered without attaching thousands of listeners.
+     ============================================================ */
+  function initTouch() {
+    /* ---- ripple on press ---- */
+    document.addEventListener('pointerdown', (e) => {
+      const btn = e.target.closest('.btn, .play-btn, .icon-btn');
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      btn.style.setProperty('--ripple-x', `${e.clientX - rect.left}px`);
+      btn.style.setProperty('--ripple-y', `${e.clientY - rect.top}px`);
+      btn.classList.remove('is-rippling');
+      // reflow so the animation restarts on rapid repeat presses
+      void btn.offsetWidth;
+      btn.classList.add('is-rippling');
+      setTimeout(() => btn.classList.remove('is-rippling'), 460);
+    }, { passive: true });
+
+    /* ---- long press opens the same menu as right click ---- */
+    let holdTimer = null;
+    let holdTarget = null;
+    let startPoint = null;
+
+    const clearHold = () => {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      if (holdTarget) holdTarget.classList.remove('is-holding');
+      holdTarget = null;
+      startPoint = null;
+    };
+
+    document.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;          // mouse has right-click
+      const row = e.target.closest('.track, .qrow, .card');
+      if (!row || e.target.closest('button')) return;
+
+      holdTarget = row;
+      startPoint = { x: e.clientX, y: e.clientY };
+      holdTimer = setTimeout(() => {
+        if (!holdTarget) return;
+        holdTarget.classList.add('is-holding');
+        haptic(12);
+        holdTarget.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true,
+          clientX: startPoint.x, clientY: startPoint.y,
+        }));
+        setTimeout(clearHold, 120);
+      }, 480);
+    }, { passive: true });
+
+    // Any movement means it's a scroll, not a long press
+    document.addEventListener('pointermove', (e) => {
+      if (!startPoint) return;
+      if (Math.abs(e.clientX - startPoint.x) > 8 || Math.abs(e.clientY - startPoint.y) > 8) clearHold();
+    }, { passive: true });
+
+    ['pointerup', 'pointercancel', 'scroll'].forEach((evt) =>
+      document.addEventListener(evt, clearHold, { passive: true }));
+
+    /* ---- suppress the browser menu where we provide our own ---- */
+    document.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.track, .qrow, .pl-item') && store.state.touch) e.preventDefault();
+    });
+  }
+
+  /** Short vibration for confirmations; silently ignored where unsupported. */
+  function haptic(ms = 10) {
+    try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* ignore */ }
+  }
+
+  /* ============================================================
      Keyboard shortcuts
      ============================================================ */
   const SHORTCUTS = [
@@ -418,6 +491,7 @@
     initSourceSwitch();
     initSearch();
     initKeyboard();
+    initTouch();
     engine.init();
     player.init();
 

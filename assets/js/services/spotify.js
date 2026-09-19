@@ -324,6 +324,49 @@
     };
   }
 
+  /**
+   * Newly released albums, flattened to their tracks.
+   *
+   * Note: Spotify retired /recommendations, /featured-playlists and
+   * /categories for apps created after November 2024, so "trending" is built
+   * from new releases plus the listener's own top tracks instead.
+   */
+  async function newReleases({ limit = 12, market = 'from_token' } = {}) {
+    const res = await api('/browse/new-releases', { query: { limit, market } });
+    const albums = (res.albums && res.albums.items) || [];
+    const picks = await Promise.all(albums.slice(0, limit).map(async (album) => {
+      try {
+        const full = await api(`/albums/${album.id}/tracks`, { query: { limit: 1 } });
+        const first = (full.items || [])[0];
+        if (!first) return null;
+        return normalizeTrack({ ...first, album: { name: album.name, images: album.images } });
+      } catch (e) { return null; }
+    }));
+    return picks.filter(Boolean);
+  }
+
+  /** The listener's most played tracks — the basis for recommendations. */
+  async function topTracks({ limit = 30, range = 'medium_term' } = {}) {
+    const res = await api('/me/top/tracks', { query: { limit, time_range: range } });
+    return (res.items || []).map(normalizeTrack).filter(Boolean);
+  }
+
+  async function topArtists({ limit = 15, range = 'medium_term' } = {}) {
+    const res = await api('/me/top/artists', { query: { limit, time_range: range } });
+    return (res.items || []).map((a) => ({
+      id: a.id,
+      name: a.name,
+      genres: a.genres || [],
+      artwork: (a.images && a.images[0] && a.images[0].url) || null,
+      followers: (a.followers && a.followers.total) || 0,
+    })).filter((a) => a.id);
+  }
+
+  async function recentlyPlayed({ limit = 30 } = {}) {
+    const res = await api('/me/player/recently-played', { query: { limit } });
+    return (res.items || []).map((i) => normalizeTrack(i.track)).filter(Boolean);
+  }
+
   async function savedTracks({ max = 200 } = {}) {
     const out = [];
     let url = `${API}/me/tracks?limit=50`;
@@ -432,6 +475,7 @@
     login, logout, handleRedirect, token, loadProfile, api,
     myPlaylists, playlistTracks, getPlaylist, getAlbum, getTrack, artistTop,
     search, savedTracks, parse, normalizeTrack, normalizePlaylist,
+    newReleases, topTracks, topArtists, recentlyPlayed,
     sdk, SCOPES,
   };
 })(window.Loru);

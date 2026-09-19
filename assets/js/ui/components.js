@@ -11,6 +11,8 @@
     spotify: { label: 'Spotify', icon: 'spotify' },
     youtube: { label: 'YouTube', icon: 'youtube' },
     audius: { label: 'Audius', icon: 'wave' },
+    soundcloud: { label: 'SoundCloud', icon: 'soundcloud' },
+    itunes: { label: 'Apple', icon: 'apple' },
     url: { label: 'Stream', icon: 'globe' },
     demo: { label: 'Demo', icon: 'sparkle' },
     local: { label: 'Loru', icon: 'sparkle' },
@@ -379,6 +381,27 @@
     if (onRemove) {
       items.push('-', { label: 'Remove from this playlist', icon: 'trash', danger: true, onClick: () => onRemove(track) });
     }
+    /* Preview-only sources (Apple, Spotify) can be upgraded to a full
+       version by finding the same song on YouTube. */
+    if (track.previewOnly || track.source === 'itunes') {
+      items.splice(1, 0, {
+        label: 'Play full song (YouTube)',
+        icon: 'youtube',
+        onClick: async () => {
+          const close = toast({ title: 'Finding the full version…', text: track.title, timeout: 0 });
+          try {
+            const match = await L.youtube.findMatch(track.title, track.artist);
+            close();
+            if (!match) { toast({ kind: 'error', title: 'No full version found' }); return; }
+            engine.playTrack(match, { type: 'search', id: track.title, name: track.title });
+          } catch (err) {
+            close();
+            toast({ kind: 'error', title: 'Couldn’t find it', text: err.message });
+          }
+        },
+      });
+    }
+
     if (track.permalink) {
       items.push('-', { label: 'Open original', icon: 'globe', onClick: () => window.open(track.permalink, '_blank', 'noopener') });
       items.push({ label: 'Copy link', icon: 'link', onClick: async () => {

@@ -286,6 +286,7 @@
     if (except !== 'youtube' && ytPlayer) { try { ytPlayer.pauseVideo(); } catch (e) {} }
     if (except !== 'spotify') { try { spotify.sdk.pause(); } catch (e) {} }
     if (except !== 'demo') synth.pause();
+    if (except !== 'soundcloud' && L.soundcloud) { try { L.soundcloud.pause(); } catch (e) {} }
     if (except !== 'youtube') showYouTubeSurface(false);
   }
 
@@ -400,6 +401,47 @@
         return;
       }
 
+      if (playable.source === 'soundcloud' && playable.scUrl) {
+        backend = 'soundcloud';
+        store.set({ backend });
+        stopAllBackends('soundcloud');
+
+        await L.soundcloud.load(playable.scUrl, {
+          onPlay: () => store.set({ playing: true, loading: false, awaitingGesture: false }),
+          onPause: () => store.set({ playing: false }),
+          onFinish: () => handleEnded(),
+          onProgress: (seconds) => store.set({ position: seconds }),
+          onError: (err) => {
+            store.set({ loading: false, playing: false });
+            toast({ kind: 'error', title: 'Skipping track', text: err.message });
+            setTimeout(() => next(true), 700);
+          },
+        }, { autoplay });
+
+        L.soundcloud.setVolume(store.state.muted ? 0 : store.state.volume);
+
+        // The widget only knows the real title and length once it resolves
+        L.soundcloud.currentSound().then((sound) => {
+          if (!sound || token !== pendingTrackToken) return;
+          const q = store.state.queue.slice();
+          const idx = store.state.index;
+          if (q[idx]) {
+            q[idx] = {
+              ...q[idx],
+              title: sound.title || q[idx].title,
+              artist: sound.artist || q[idx].artist,
+              artwork: sound.artwork || q[idx].artwork,
+              duration: sound.duration || q[idx].duration,
+            };
+            store.set({ queue: q, duration: sound.duration || store.state.duration });
+          }
+        });
+
+        store.set({ loading: false });
+        startTicker();
+        return;
+      }
+
       if (isDemo) {
         backend = 'demo';
         store.set({ backend });
@@ -507,6 +549,8 @@
     } else if (backend === 'demo') {
       synth.start(track, synth.offset || store.state.position || 0);
       store.set({ playing: true });
+    } else if (backend === 'soundcloud') {
+      L.soundcloud.play();
     }
     startTicker();
   }
@@ -516,6 +560,7 @@
     else if (backend === 'youtube' && ytPlayer) { try { ytPlayer.pauseVideo(); } catch (e) {} }
     else if (backend === 'spotify') spotify.sdk.pause();
     else if (backend === 'demo') synth.pause();
+    else if (backend === 'soundcloud') L.soundcloud.pause();
     store.set({ playing: false });
   }
 
@@ -534,6 +579,7 @@
     if (backend === 'audio' && audioEl) { try { audioEl.currentTime = target; } catch (e) {} }
     else if (backend === 'youtube' && ytPlayer) { try { ytPlayer.seekTo(target, true); } catch (e) {} }
     else if (backend === 'spotify') spotify.sdk.seek(Math.round(target * 1000));
+    else if (backend === 'soundcloud') L.soundcloud.seek(target);
     else if (backend === 'demo') {
       const wasPlaying = store.state.playing;
       synth.pause();
@@ -559,6 +605,7 @@
     if (ytPlayer && ytPlayer.setVolume) { try { ytPlayer.setVolume(Math.round(v * 100)); } catch (e) {} }
     spotify.sdk.setVolume && spotify.sdk.setVolume(v);
     synth.setVolume(v);
+    if (L.soundcloud) L.soundcloud.setVolume(v);
   }
 
   function toggleMute() {

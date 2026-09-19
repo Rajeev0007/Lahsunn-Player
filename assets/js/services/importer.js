@@ -11,7 +11,6 @@
   const STREAMY = /(stream|listen|radio|icecast|shoutcast|:8000|\/;)/i;
 
   const UNSUPPORTED = [
-    { host: /(^|\.)soundcloud\.com$/, name: 'SoundCloud' },
     { host: /(^|\.)music\.apple\.com$/, name: 'Apple Music' },
     { host: /(^|\.)deezer\.com$/, name: 'Deezer' },
     { host: /(^|\.)tidal\.com$/, name: 'Tidal' },
@@ -41,6 +40,9 @@
     const yt = youtube.parse(raw);
     if (yt) return { source: 'youtube', entityKind: yt.kind, id: yt.id, list: yt.list || null };
 
+    const sc = L.soundcloud && L.soundcloud.parse(raw);
+    if (sc) return { source: 'soundcloud', entityKind: sc.kind, url: sc.url, title: sc.title, user: sc.user };
+
     let url = null;
     try { url = new URL(raw.startsWith('http') ? raw : 'https://' + raw); } catch (e) { /* not a URL */ }
 
@@ -58,7 +60,10 @@
     return { source: 'query', query: raw };
   }
 
-  const SOURCE_LABELS = { spotify: 'Spotify', youtube: 'YouTube', audius: 'Audius', url: 'Direct stream' };
+  const SOURCE_LABELS = {
+    spotify: 'Spotify', youtube: 'YouTube', audius: 'Audius',
+    soundcloud: 'SoundCloud', itunes: 'Apple', url: 'Direct stream',
+  };
 
   function labelFor(d) {
     if (!d) return 'Link';
@@ -136,6 +141,27 @@
       say('Reading YouTube video…');
       const track = await youtube.resolveVideo(d.id);
       return { kind: 'track', collection: { id: 'yt-' + d.id, source: 'youtube', name: track.title, tracks: [track] } };
+    }
+
+    /* ---- SoundCloud (official widget, no key) ---- */
+    if (d.source === 'soundcloud') {
+      if (d.entityKind === 'user') {
+        const err = new Error('That is a SoundCloud profile. Paste a link to a specific track or playlist.');
+        err.recoverable = true;
+        throw err;
+      }
+      if (d.entityKind === 'playlist') {
+        /* The widget plays a set as one unit and does not expose its track
+           list without an API key, so it enters the queue as a single item
+           that advances internally. */
+        say('Loading SoundCloud playlist…');
+        const track = L.soundcloud.toTrack({ url: d.url, title: d.title, user: d.user });
+        track.isSet = true;
+        return { kind: 'track', collection: { id: 'sc-' + d.url, source: 'soundcloud', name: d.title, tracks: [track] } };
+      }
+      say('Loading SoundCloud track…');
+      const track = L.soundcloud.toTrack({ url: d.url, title: d.title, user: d.user });
+      return { kind: 'track', collection: { id: 'sc-' + d.url, source: 'soundcloud', name: track.title, tracks: [track] } };
     }
 
     /* ---- Audius ---- */

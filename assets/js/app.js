@@ -460,19 +460,68 @@
     return kind;
   }
 
-  /** Caches the app shell so repeat loads are instant. */
+  /**
+   * Registers the service worker and — importantly — recovers from a stale
+   * one. An earlier version cached code aggressively, which could leave a
+   * browser running old JavaScript against old CSS indefinitely. This forces
+   * an update check on every load and reloads once when a new worker takes
+   * over, so nobody gets stuck on an old build again.
+   */
   function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
-    // file:// and insecure origins cannot host a worker
     if (location.protocol !== 'https:' && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return;
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch(() => { /* not fatal */ });
+
+    window.addEventListener('load', async () => {
+      try {
+        const reg = await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' });
+        reg.update().catch(() => {});
+
+        // A new worker replacing an existing one means the page is running
+        // code that may not match it. Reload exactly once to resynchronise.
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (sessionStorage.getItem('loru:reloaded') === '1') return;
+          sessionStorage.setItem('loru:reloaded', '1');
+          location.reload();
+        });
+
+        reg.addEventListener('updatefound', () => {
+          const incoming = reg.installing;
+          if (!incoming) return;
+          incoming.addEventListener('statechange', () => {
+            if (incoming.state === 'installed' && navigator.serviceWorker.controller) {
+              toast({
+                title: 'Update ready',
+                text: 'A newer version of Loru is available.',
+                timeout: 0,
+                action: { label: 'Reload', onClick: () => location.reload() },
+              });
+            }
+          });
+        });
+      } catch (e) { /* not fatal */ }
     });
+  }
+
+  /** Nuclear option exposed in Settings: drop all caches and workers. */
+  async function hardRefresh() {
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch (e) { /* continue to reload regardless */ }
+    sessionStorage.removeItem('loru:reloaded');
+    location.reload();
   }
 
   L.app = {
     boot, navigate, setTheme, setAccent, setDrawer, setSidebarCollapsed,
-    showShortcuts, parseHash, SHORTCUTS,
+    showShortcuts, parseHash, hardRefresh, detectDevice, SHORTCUTS,
+    VERSION: '1.2.0',
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

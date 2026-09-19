@@ -967,3 +967,16 @@
   70%  { box-shadow: 0 0 0 12px color-mix(in oklab, var(--accent-1) 0%, transparent); }
   100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-1) 0%, transparent); }
 }
+
+
+/* SoundCloud widget: audio-only, so it lives offscreen like the YouTube host */
+.sc-host {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  width: 320px;
+  height: 120px;
+  pointer-events: none;
+}
+.source-badge[data-source="soundcloud"] { color: #ff7700; border-color: color-mix(in oklab, #ff7700 32%, transparent); background: color-mix(in oklab, #ff7700 12%, transparent); }
+.source-badge[data-source="itunes"] { color: #fc3c44; border-color: color-mix(in oklab, #fc3c44 32%, transparent); background: color-mix(in oklab, #fc3c44 12%, transparent); }

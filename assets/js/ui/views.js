@@ -390,7 +390,7 @@
     view.appendChild(el('section.section', [
       ui.sectionHead({ title: `Results for “${q}”` }),
       el('div.chips', { style: { marginBottom: '18px' } }, [
-        ['all', 'Everything'], ['youtube', 'YouTube'], ['audius', 'Audius'],
+        ['all', 'Everything'], ['youtube', 'YouTube'], ['apple', 'Apple'], ['audius', 'Audius'],
         ['playlists', 'Playlists'], ['artists', 'Artists'],
       ].map(([id, label]) => el('button.chip' + (searchFilter === id ? '.is-active' : ''), {
         type: 'button',
@@ -409,6 +409,25 @@
             skeleton: ui.skeletonRows(8),
             onEmpty: () => ui.emptyState({ compact: true, title: 'No YouTube results', text: 'Try fewer words, or the artist name on its own.' }),
             onError: (err, retry) => youtubeSearchError(err, retry, q),
+          },
+        ),
+      ));
+    }
+
+    /* Apple: best-quality metadata and instant ad-free previews. */
+    if (!data.demo && (searchFilter === 'all' || searchFilter === 'apple')) {
+      view.appendChild(ui.section(
+        { title: 'Apple Music catalogue', sub: '30-second previews play instantly · tap ⋯ for the full song' },
+        asyncBlock(
+          () => L.itunes.search(q, { limit: 18 }),
+          (tracks) => ui.trackList(tracks, { context: { type: 'search', id: 'ap:' + q, name: `Apple: ${q}` } }),
+          {
+            skeleton: ui.skeletonRows(5),
+            onEmpty: () => ui.emptyState({ compact: true, title: 'Nothing on Apple Music for that' }),
+            onError: (err, retry) => ui.emptyState({
+              compact: true, icon: 'apple', title: 'Apple search unavailable', text: err.message,
+              actions: [{ label: 'Try again', icon: 'repeat', variant: 'soft', onClick: retry }],
+            }),
           },
         ),
       ));
@@ -959,6 +978,33 @@
       foot: [el('button.btn.btn--soft.btn--sm', { type: 'button', onclick: tryExample(1) }, [icon('link'), 'Try an example'])],
     }));
 
+    /* SoundCloud */
+    cards.appendChild(srcCard({
+      color: '#ff7700',
+      accent: 'linear-gradient(90deg,#ff7700,#ff3300)',
+      iconName: 'soundcloud',
+      title: 'SoundCloud',
+      note: 'Paste a track or playlist link',
+      status: 'No setup', statusKind: 'on',
+      body: 'Plays through SoundCloud’s official widget, so no key or account is needed and the artist still gets the play. Searching is not possible — SoundCloud closed public API signups — so paste links directly. Tracks whose uploader disabled embedding will be skipped.',
+      foot: [el('button.btn.btn--soft.btn--sm', {
+        type: 'button',
+        onclick: () => { input.value = 'https://soundcloud.com/'; input.focus(); },
+      }, [icon('link'), 'Paste a link'])],
+    }));
+
+    /* Apple Music */
+    cards.appendChild(srcCard({
+      color: '#fc3c44',
+      accent: 'linear-gradient(90deg,#fc3c44,#a1005e)',
+      iconName: 'apple',
+      title: 'Apple Music',
+      note: '30-second previews, no account',
+      status: 'Previews', statusKind: 'warn',
+      body: 'Apple’s catalogue is searchable with no key, giving the most accurate titles and the best artwork — and every result plays instantly as an ad-free 30-second preview. Full tracks need a paid Apple Developer token plus your own subscription, so Loru instead offers one tap to play the complete song from YouTube.',
+      foot: [el('button.btn.btn--soft.btn--sm', { type: 'button', onclick: () => { location.hash = '#/search'; } }, [icon('search'), 'Search Apple'])],
+    }));
+
     /* Audius */
     cards.appendChild(srcCard({
       color: '#a855f7',
@@ -989,8 +1035,8 @@
     view.appendChild(el('section.section', el('div.callout', [
       icon('info'),
       el('div', [
-        el('strong', 'Apple Music, SoundCloud, Deezer and Tidal '),
-        'do not allow third-party web players to stream their catalogues. If you paste one of those links Loru will offer to find the same songs on Audius or YouTube instead.',
+        el('strong', 'Deezer, Tidal and Amazon Music '),
+        'cannot be supported: their APIs block browser requests outright, and full playback is restricted to their own apps. Paste one of those links and Loru will offer to find the same song on YouTube instead. Apple Music works for search and previews, but its full catalogue needs a paid developer token plus your own subscription.',
       ]),
     ])));
 
@@ -1349,6 +1395,8 @@
         el('button.btn.btn--soft.btn--sm', { type: 'button', onclick: exportLibrary }, 'Export')),
       settingRow('Import library', 'Restore from a previously exported file.',
         el('button.btn.btn--soft.btn--sm', { type: 'button', onclick: importLibrary }, 'Choose file')),
+      settingRow('Force refresh', 'Clears the offline cache and reloads. Use this if the app looks broken or seems out of date.',
+        el('button.btn.btn--soft.btn--sm', { type: 'button', onclick: () => L.app.hardRefresh() }, [icon('repeat'), 'Clear cache & reload'])),
       settingRow('Reset everything', 'Clears playlists, history and settings from this browser.',
         el('button.btn.btn--danger.btn--sm', { type: 'button', onclick: () => ui.confirmModal({
           title: 'Reset Loru?',

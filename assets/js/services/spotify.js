@@ -22,6 +22,7 @@
 
   const KEY_TOKENS = 'spotify:tokens';
   const KEY_VERIFIER = 'spotify:verifier';
+  const KEY_STATE = 'spotify:state';
 
   /* ---------------- config ---------------- */
   function clientId() {
@@ -74,7 +75,15 @@
     if (!isConfigured()) throw new Error('Add your Spotify Client ID in Settings first.');
     const verifier = randomString();
     const challenge = await challengeFrom(verifier);
-    storage.session.set(KEY_VERIFIER, verifier);
+    const state = randomString(24);
+
+    /* Deliberately localStorage, not sessionStorage. On phones the Spotify
+       consent screen often returns through a different tab or an in-app
+       browser, which starts a fresh session and would lose the verifier —
+       the login then fails with "session expired". The verifier is
+       single-use and cleared immediately after the exchange. */
+    storage.set(KEY_VERIFIER, verifier);
+    storage.set(KEY_STATE, state);
     storage.set('spotify:returnTo', location.hash || '#/sources');
 
     const params = new URLSearchParams({
@@ -83,6 +92,7 @@
       redirect_uri: redirectUri(),
       code_challenge_method: 'S256',
       code_challenge: challenge,
+      state,
       scope: SCOPES,
       show_dialog: 'false',
     });
@@ -101,10 +111,24 @@
     storage.remove('spotify:returnTo');
     history.replaceState(null, '', location.pathname + (returnTo || ''));
 
-    if (error) throw new Error(`Spotify authorisation was cancelled (${error}).`);
+    if (error) {
+      const hint = error === 'access_denied'
+        ? 'You declined the permission prompt.'
+        : 'Check that the Redirect URI in your Spotify app matches the one shown in Settings exactly.';
+      throw new Error(`Spotify refused the login (${error}). ${hint}`);
+    }
 
-    const verifier = storage.session.get(KEY_VERIFIER, null);
-    if (!verifier) throw new Error('Login session expired — please try connecting again.');
+    const expectedState = storage.get(KEY_STATE, null);
+    const gotState = url.searchParams.get('state');
+    storage.remove(KEY_STATE);
+    if (expectedState && gotState && expectedState !== gotState) {
+      throw new Error('Login response did not match the request. Please try connecting again.');
+    }
+
+    // Migrate any verifier left in sessionStorage by an older version
+    const verifier = storage.get(KEY_VERIFIER, null) || storage.session.get(KEY_VERIFIER, null);
+    if (!verifier) throw new Error('Login could not be completed — please tap Connect and try once more.');
+    storage.remove(KEY_VERIFIER);
     storage.session.remove(KEY_VERIFIER);
 
     const body = new URLSearchParams({
@@ -115,11 +139,24 @@
       code_verifier: verifier,
     });
 
-    const tokens = await fetchJSON(TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-    });
+    let tokens;
+    try {
+      tokens = await fetchJSON(TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+    } catch (err) {
+      // Spotify's errors here are famously opaque; translate the common ones
+      const detail = (err.payload && (err.payload.error_description || err.payload.error)) || '';
+      if (/redirect_uri/i.test(detail)) {
+        throw new Error(`Spotify rejected the Redirect URI. Add exactly "${redirectUri()}" to your app in the Spotify dashboard.`);
+      }
+      if (/client/i.test(detail)) {
+        throw new Error('Spotify rejected the Client ID. Check it was copied in full from the dashboard.');
+      }
+      throw new Error(detail ? `Spotify login failed: ${detail}` : 'Spotify login failed.');
+    }
     tokens.expires_at = Date.now() + (tokens.expires_in - 60) * 1000;
     writeTokens(tokens);
     await loadProfile();

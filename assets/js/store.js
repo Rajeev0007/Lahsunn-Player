@@ -21,6 +21,8 @@
     defaultSource: 'youtube',
     adFreeFirst: false,
     spotifyUsePremiumPlayer: false,
+    discordPresence: false,
+    discordPort: 6472,
     demoMode: false,
     reduceData: false,
   };
@@ -62,6 +64,7 @@
     standalone: false,
     backend: 'none',       // none | audio | youtube | spotify | demo
     awaitingGesture: false, // mobile blocked autoplay; needs a real tap
+    discordOnline: null,    // null untested, true/false last helper result
     queueOpen: false,
     npOpen: false,
     sidebarCollapsed: false,

@@ -533,6 +533,32 @@
         ])),
     ])));
 
+    /* discord */
+    view.appendChild(ui.section({ title: 'Discord presence' }, el('div.panel', [
+      el('div.callout', [
+        icon('info'),
+        el('div', [
+          el('strong', 'Needs a small helper on your computer. '),
+          'Browsers cannot talk to Discord — Rich Presence uses a local socket that web pages have no access to. Run ',
+          el('code', { style: { background: 'var(--surface-2)', padding: '1px 5px', borderRadius: '5px' }, text: 'node tools/discord-presence.mjs' }),
+          ' and Loru will post the current track to it. Nothing leaves your machine.',
+        ]),
+      ]),
+      toggleRow('Show what I’m listening to', 'Publishes the current track to Discord while the helper is running.', 'discordPresence', () => {
+        if (store.state.settings.discordPresence) L.discord.start();
+      }),
+      settingRow('Helper port', 'Must match the port the helper prints on start.',
+        (() => {
+          const inp = el('input.input', { type: 'number', value: String(store.state.settings.discordPort || 6472), min: '1024', max: '65535', style: { width: '120px' } });
+          inp.addEventListener('change', () => {
+            store.updateSettings({ discordPort: Number(inp.value) || 6472 });
+            toast({ kind: 'success', title: 'Port saved', timeout: 1800 });
+          });
+          return inp;
+        })()),
+      discordTestRow(),
+    ])));
+
     /* data */
     view.appendChild(ui.section({ title: 'Your data' }, el('div.panel', [
       settingRow('Export library', 'Download your playlists, liked songs and settings as JSON.',
@@ -620,6 +646,35 @@
 
     return el('div', [
       settingRow('Check what works', 'Contacts every search source and reports which ones respond.', button),
+      output,
+    ]);
+  }
+
+  /** Live check against the local helper, so failures are diagnosable. */
+  function discordTestRow() {
+    const output = el('div.section__sub', { style: { marginTop: '10px' }, text: '' });
+    const btn = el('button.btn.btn--soft.btn--sm', { type: 'button' }, [icon('repeat'), 'Test helper']);
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      output.textContent = 'Contacting helper…';
+      try {
+        const info = await L.discord.test();
+        output.innerHTML = '';
+        output.append(
+          info.discord
+            ? `Helper running and connected to Discord${info.user ? ' as ' + info.user : ''}.`
+            : 'Helper running, but Discord is not connected — is the desktop app open?',
+        );
+        await L.discord.push({ force: true });
+      } catch (err) {
+        output.textContent = `Could not reach the helper on port ${store.state.settings.discordPort || 6472}. Start it with: node tools/discord-presence.mjs`;
+      }
+      btn.disabled = false;
+    });
+
+    return el('div', [
+      settingRow('Check the connection', 'Verifies the helper is running and talking to Discord.', btn),
       output,
     ]);
   }

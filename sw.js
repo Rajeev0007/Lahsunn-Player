@@ -12,7 +12,7 @@
    ============================================================ */
 
 /* Bump on any change to SHELL so stale caches are discarded. */
-const VERSION = 'loru-v6';
+const VERSION = 'loru-v7';
 
 /* Code must never be served stale: a cache-first CSS file paired with freshly
    downloaded JS produces a half-broken UI (invisible panes, wrong layout).
@@ -35,6 +35,7 @@ const SHELL = [
   'assets/js/services/soundcloud.js',
   'assets/js/services/itunes.js',
   'assets/js/services/lyrics.js',
+  'assets/js/services/discord.js',
   'assets/js/services/importer.js',
   'assets/js/data.js',
   'assets/js/engine.js',

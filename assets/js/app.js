@@ -494,6 +494,7 @@
     initTouch();
     engine.init();
     player.init();
+    L.discord.init();
 
     /* Spotify redirect leg, if we came back from the consent screen */
     try {

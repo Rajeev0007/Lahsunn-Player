@@ -12,7 +12,7 @@
    ============================================================ */
 
 /* Bump on any change to SHELL so stale caches are discarded. */
-const VERSION = 'loru-v7';
+const VERSION = 'loru-v9';
 
 /* Code must never be served stale: a cache-first CSS file paired with freshly
    downloaded JS produces a half-broken UI (invisible panes, wrong layout).
@@ -26,6 +26,8 @@ const SHELL = [
   'assets/css/theme.css',
   'assets/css/layout.css',
   'assets/css/components.css',
+  'assets/css/forms.css',
+  'assets/css/overlays.css',
   'assets/js/utils.js',
   'assets/js/store.js',
   'assets/js/catalog.js',
@@ -41,8 +43,12 @@ const SHELL = [
   'assets/js/engine.js',
   'assets/js/visualizer.js',
   'assets/js/ui/components.js',
+  'assets/js/ui/views/shared.js',
+  'assets/js/ui/views/home.js',
+  'assets/js/ui/views/search.js',
+  'assets/js/ui/views/library.js',
+  'assets/js/ui/views/manage.js',
   'assets/js/ui/views.js',
-  'assets/js/ui/views-manage.js',
   'assets/js/ui/player.js',
   'assets/js/app.js',
   'assets/img/logo.svg',

@@ -20,6 +20,7 @@
     youtubeMirror: '',
     defaultSource: 'youtube',
     adFreeFirst: false,
+    spotifyUsePremiumPlayer: false,
     demoMode: false,
     reduceData: false,
   };

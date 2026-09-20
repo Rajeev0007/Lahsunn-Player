@@ -232,9 +232,19 @@
   async function resolvePlayable(track) {
     if (!track) throw new Error('No track to play.');
 
-    /* Apple chart entries carry no preview URL, and previews are only 30
-       seconds anyway, so fall through to a full YouTube version. */
-    if (track.source === 'itunes' && (!track.streamUrl || track.needsMatch)) {
+    /* Apple only ever exposes a 30-second preview, so the default is to find
+       the full song elsewhere and keep the preview as the fallback. */
+    if (track.source === 'itunes') {
+      const full = store.state.settings.adFreeFirst
+        ? (await audius.findMatch(track.title, track.artist).catch(() => null))
+        : null;
+      if (full) {
+        return {
+          track: { ...track, playbackVia: 'audius', matchedFrom: 'itunes', streamUrl: full.streamUrl, duration: full.duration || 0 },
+          note: `Playing the full track ad-free from Audius: “${full.title}”.`,
+        };
+      }
+
       const yt = await youtube.findMatch(track.title, track.artist).catch(() => null);
       if (yt) {
         return {
@@ -245,13 +255,22 @@
           note: `Playing the full track from YouTube: “${yt.title}”.`,
         };
       }
+
+      if (track.previewUrl) {
+        return {
+          track: { ...track, playbackVia: 'preview', streamUrl: track.previewUrl, duration: 30 },
+          note: 'Could not find a full version, so this is Apple’s 30-second preview.',
+        };
+      }
+
       const err = new Error(`No playable source found for “${track.title}”.`);
       err.permalink = track.permalink;
       throw err;
     }
 
     if (track.source !== 'spotify') return { track };
-    if (store.state.connections.spotify.premium) return { track };
+    // Only hand playback to Spotify when the listener asked for it
+    if (store.state.connections.spotify.premium && spotify.usePremiumPlayer()) return { track };
 
     /* A full-length YouTube match beats a 30-second preview, so try it first.
        `videoId` is kept in a separate field so the track keeps its Spotify

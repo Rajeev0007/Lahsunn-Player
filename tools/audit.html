@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Loru layout audit</title>
+<style>
+  body { margin: 0; font: 12px/1.5 monospace; background: #111; color: #eee; }
+  #frame { border: 0; display: block; }
+  pre { padding: 12px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<!--
+  Development audit. Loads each route at several widths and reports real
+  layout faults: horizontal overflow (the usual cause of "doesn't fit"),
+  tap targets below 40px, broken images and script errors.
+-->
+<iframe id="frame" width="390" height="760"></iframe>
+<pre id="out">running…</pre>
+<script>
+const ROUTES = ['/home', '/search?q=test', '/playlist/demo-pl-1', '/settings'];
+const WIDTHS = [360, 768, 1440];
+
+const frame = document.getElementById('frame');
+const out = document.getElementById('out');
+const findings = [];
+
+// Elements that are deliberately wider than the viewport or parked offscreen
+const EXEMPT = ['#ytHost', '#scHost', '.rail', '.pl-actions', '.sidebar', '.np', '.queue-panel', '#__diag'];
+
+function inspect(width) {
+  const d = frame.contentDocument;
+  const w = frame.contentWindow;
+  const res = { overflow: [], small: [], brokenImages: [], errors: (w.__loruErrors || []).slice() };
+
+  const docWidth = d.documentElement.scrollWidth;
+  if (docWidth > width + 1) res.pageOverflow = docWidth - width;
+
+  const all = d.querySelectorAll('body *');
+  const seen = new Set();
+  for (const node of all) {
+    if (EXEMPT.some((sel) => node.closest(sel))) continue;
+    const cs = w.getComputedStyle(node);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.position === 'fixed') continue;
+    const r = node.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+
+    if (r.right > width + 1 || r.left < -1) {
+      const key = node.className || node.tagName;
+      if (!seen.has('o' + key)) {
+        seen.add('o' + key);
+        res.overflow.push(`${node.tagName.toLowerCase()}.${String(node.className).split(' ')[0]} right=${Math.round(r.right)}`);
+      }
+    }
+
+    // Touch target size, only where a pointer action exists
+    if (width <= 768 && (node.tagName === 'BUTTON' || node.tagName === 'A') && cs.pointerEvents !== 'none') {
+      if (r.height < 40 || r.width < 32) {
+        const key = String(node.className).split(' ')[0] || node.tagName;
+        if (!seen.has('s' + key)) {
+          seen.add('s' + key);
+          res.small.push(`${key} ${Math.round(r.width)}x${Math.round(r.height)}`);
+        }
+      }
+    }
+  }
+
+  for (const img of d.images) {
+    if (img.getAttribute('src') && img.complete && img.naturalWidth === 0) {
+      res.brokenImages.push(img.getAttribute('src'));
+    }
+  }
+  return res;
+}
+
+async function step(route, width) {
+  return new Promise((resolve) => {
+    frame.width = width;
+    frame.src = '/index.html?demo=1#' + route;
+    frame.onload = () => setTimeout(() => {
+      let r;
+      try { r = inspect(width); } catch (e) { r = { fatal: e.message }; }
+      const problems = [];
+      if (r.fatal) problems.push('FATAL ' + r.fatal);
+      if (r.errors && r.errors.length) problems.push('JS: ' + r.errors.join(' / '));
+      if (r.pageOverflow) problems.push(`page overflows by ${r.pageOverflow}px`);
+      if (r.overflow && r.overflow.length) problems.push('wide: ' + r.overflow.slice(0, 4).join(', '));
+      if (r.small && r.small.length) problems.push('small taps: ' + r.small.slice(0, 5).join(', '));
+      if (r.brokenImages && r.brokenImages.length) problems.push('broken img: ' + r.brokenImages.slice(0, 2).join(', '));
+      findings.push(`${String(width).padEnd(5)} ${route.padEnd(22)} ${problems.length ? problems.join(' | ') : 'clean'}`);
+      resolve();
+    }, 900);
+  });
+}
+
+(async () => {
+  for (const width of WIDTHS) {
+    for (const route of ROUTES) await step(route, width);
+  }
+  out.textContent = findings.join('\n');
+})();
+</script>
+</body>
+</html>

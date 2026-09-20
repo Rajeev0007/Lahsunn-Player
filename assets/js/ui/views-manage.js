@@ -96,7 +96,7 @@
         ? (sp.premium
           ? 'Premium detected — full tracks play through the official Spotify player.'
           : 'Free account: Spotify itself won’t stream full tracks outside its own app, so Loru finds each song on YouTube and plays it in full instead. Nothing is limited to 30 seconds.')
-        : 'Spotify requires each listener to use their own free developer Client ID. It takes about a minute to set up and stays in your browser. A free account is enough.',
+        : 'Connect to mirror your playlists and liked songs. A free account is enough: Loru only asks for read permission and plays the songs in full via YouTube. You supply your own free Client ID, which stays in this browser.',
       foot: sp.connected ? [
         el('button.btn.btn--soft.btn--sm', { type: 'button', onclick: () => importSpotifyLibrary() }, [icon('library'), 'Import my playlists']),
         el('button.btn.btn--ghost.btn--sm', { type: 'button', onclick: () => { spotify.logout(); toast({ title: 'Disconnected from Spotify' }); render(store.state.route, true); } }, 'Disconnect'),
@@ -510,12 +510,13 @@
       settingRow(
         sp.connected ? `Connected as ${sp.user ? sp.user.name : 'you'}` : 'Not connected',
         sp.connected
-          ? (sp.premium ? 'Premium account — full tracks play natively.' : 'Free account — full tracks play via YouTube.')
+          ? (sp.premium ? 'Premium account detected — full tracks still play via YouTube unless you switch on Spotify’s player below.' : 'Free account — full tracks play via YouTube.')
           : 'Add a Client ID from the Spotify Developer Dashboard to read your playlists.',
         sp.connected
           ? el('button.btn.btn--soft.btn--sm', { type: 'button', onclick: () => { spotify.logout(); render(store.state.route, true); } }, 'Disconnect')
           : el('button.btn.btn--primary.btn--sm', { type: 'button', onclick: openSpotifySetup }, [icon('spotify'), 'Set up']),
       ),
+      toggleRow('Use Spotify’s own player', 'Premium accounts only. Off by default — Loru plays your Spotify tracks in full through YouTube, which works on a free account and needs no extra permissions.', 'spotifyUsePremiumPlayer'),
       settingRow('Client ID', 'Public identifier only — never a secret.',
         (() => {
           const inp = el('input.input', { type: 'text', value: s.spotifyClientId || '', placeholder: 'Not set', spellcheck: 'false', style: { minWidth: '240px' } });

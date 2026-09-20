@@ -13,12 +13,30 @@
   const AUTH_URL = 'https://accounts.spotify.com/authorize';
   const TOKEN_URL = 'https://accounts.spotify.com/api/token';
   const API = 'https://api.spotify.com/v1';
-  const SCOPES = [
+  /* Reading a library needs none of Spotify's playback scopes. Requesting
+     them made the consent screen imply Premium was required, and the Web
+     Playback SDK refuses to start without it. Loru plays full tracks through
+     YouTube instead, so these are only requested if the listener explicitly
+     opts into Spotify's own player. */
+  const READ_SCOPES = [
     'user-read-private', 'user-read-email',
     'playlist-read-private', 'playlist-read-collaborative',
     'user-library-read', 'user-top-read',
+  ].join(' ');
+
+  const PLAYBACK_SCOPES = [
     'streaming', 'user-modify-playback-state', 'user-read-playback-state',
   ].join(' ');
+
+  function usePremiumPlayer() {
+    return !!store.state.settings.spotifyUsePremiumPlayer;
+  }
+
+  function scopes() {
+    return usePremiumPlayer() ? `${READ_SCOPES} ${PLAYBACK_SCOPES}` : READ_SCOPES;
+  }
+
+  const SCOPES = READ_SCOPES;
 
   const KEY_TOKENS = 'spotify:tokens';
   const KEY_VERIFIER = 'spotify:verifier';
@@ -93,7 +111,7 @@
       code_challenge_method: 'S256',
       code_challenge: challenge,
       state,
-      scope: SCOPES,
+      scope: scopes(),
       show_dialog: 'false',
     });
     location.assign(`${AUTH_URL}?${params}`);
@@ -425,7 +443,8 @@
   async function ensurePlayer(handlers = {}) {
     sdkHandlers = { ...sdkHandlers, ...handlers };
     if (player && deviceId) return { player, deviceId };
-    if (!store.state.connections.spotify.premium) throw new Error('Spotify Premium is required for full-track playback.');
+    if (!usePremiumPlayer()) throw new Error('Spotify’s own player is switched off — Loru plays these tracks through YouTube instead.');
+    if (!store.state.connections.spotify.premium) throw new Error('Spotify Premium is required to use Spotify’s own player. Loru will use YouTube instead.');
 
     const Spotify = await ensureSdk();
     player = new Spotify.Player({
@@ -476,6 +495,6 @@
     myPlaylists, playlistTracks, getPlaylist, getAlbum, getTrack, artistTop,
     search, savedTracks, parse, normalizeTrack, normalizePlaylist,
     newReleases, topTracks, topArtists, recentlyPlayed,
-    sdk, SCOPES,
+    sdk, SCOPES, scopes, usePremiumPlayer,
   };
 })(window.Loru);

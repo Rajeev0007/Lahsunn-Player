@@ -1088,3 +1088,48 @@
 @media (max-width: 768px) {
   .input, .searchbar__input, .textarea, .select { font-size: 16px; }
 }
+
+/* ─────────────── Rendering containment ───────────────
+   The home screen is several thousand pixels tall. Skipping layout and
+   paint for sections that are nowhere near the viewport is the single
+   biggest scrolling win available without virtualising every list. */
+.view > .section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
+}
+
+/* Rows repeat hundreds of times; isolating them stops one row's change
+   from invalidating layout for the whole list. */
+.track, .qrow, .card, .tile, .src-card, .feature { contain: layout paint; }
+
+/* Tablets get the same treatment phones do: stacked translucent layers
+   behind a scrolling list is what costs frames. */
+@media (max-width: 1024px) {
+  .topbar, .sidebar, .queue-panel, .toast { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* ─────────────── Touch target sizing ───────────────
+   Audited at 360-768px: the brand, avatar, source switch, chips, swatches,
+   small icon buttons and section links were all 22-36px tall, below the
+   ~44px minimum both Apple and Google publish. Enlarged only for touch
+   input so pointer layouts stay compact. */
+[data-pointer="touch"] {
+  --tap: 44px;
+}
+[data-pointer="touch"] .source-switch__btn { min-height: 40px; }
+[data-pointer="touch"] .chip { height: 40px; padding-inline: 16px; }
+[data-pointer="touch"] .icon-btn--sm { width: 40px; height: 40px; }
+[data-pointer="touch"] .avatar { width: 40px; height: 40px; }
+[data-pointer="touch"] .brand__mark { width: 40px; height: 40px; }
+[data-pointer="touch"] .swatch { width: 36px; height: 36px; }
+[data-pointer="touch"] .tabs__btn { height: 38px; padding-inline: 16px; }
+[data-pointer="touch"] .section__link {
+  min-height: 40px;
+  padding: 0 6px;
+  align-items: center;
+}
+[data-pointer="touch"] .btn--sm { height: 40px; }
+[data-pointer="touch"] .lyrics__line { padding-block: 12px; }
+
+/* Belt and braces against a stray pixel of horizontal scroll */
+.view-wrap { overflow-x: clip; }

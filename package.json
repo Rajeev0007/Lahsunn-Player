@@ -1,16 +1,25 @@
 {
   "name": "loru-player",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Online music player. Search YouTube's catalogue, link Spotify and Audius playlists, and stream without storing any local files.",
-  "author": "Rajeev",
+  "author": "Rajeev </>",
   "license": "SEE LICENSE IN LICENSE",
   "homepage": "https://loruplayer.vercel.app",
   "repository": {
     "type": "git",
     "url": "https://github.com/Rajeev0007/loruplayer.git"
   },
-  "keywords": ["music", "player", "youtube", "spotify", "audius", "lyrics", "pwa", "static"],
+  "keywords": [
+    "music",
+    "player",
+    "youtube",
+    "spotify",
+    "audius",
+    "lyrics",
+    "pwa",
+    "static"
+  ],
   "//": "Loru is plain HTML, CSS and JavaScript with zero dependencies. These scripts exist so that hosts which insist on running an install/build step succeed instead of failing with 'command not found'.",
   "scripts": {
     "build": "echo \"Loru Player is a static site - no build step required.\"",

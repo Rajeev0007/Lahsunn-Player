@@ -580,14 +580,19 @@
     view.appendChild(ui.section({ title: 'About Loru Player' }, el('div.panel', [
       el('p.panel__desc', 'Loru Player is a browser-based music player. It never stores audio: each track is streamed from the service that hosts it, using that service’s official player or public API. Playlists you import are references, not copies.'),
       el('div.kbd-list', { style: { marginTop: '16px' } }, [
-        ['Version', '1.1.0'],
+        ['Version', '1.2.0'],
         ['Streaming', 'YouTube · Audius · Spotify · direct URLs'],
         ['Lyrics', 'LRCLIB, fetched live'],
         ['Storage', 'Browser local storage only'],
         ['Accounts', 'None required'],
+        ['Made by', 'Rajeev </>'],
       ].map(([k, v]) => el('div.kbd-row', [el('span', { text: k }), el('span', { style: { color: 'var(--ink-3)' }, text: v })]))),
-      el('div', { style: { marginTop: '16px' } },
-        el('button.btn.btn--ghost.btn--sm', { type: 'button', onclick: () => L.app.showShortcuts() }, [icon('info'), 'Keyboard shortcuts'])),
+      el('div', { style: { marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' } }, [
+        el('button.btn.btn--ghost.btn--sm', { type: 'button', onclick: () => L.app.showShortcuts() }, [icon('info'), 'Keyboard shortcuts']),
+        el('a.btn.btn--ghost.btn--sm', {
+          href: 'https://github.com/Rajeev0007', target: '_blank', rel: 'noopener',
+        }, [icon('globe'), 'Made by Rajeev </>']),
+      ]),
     ])));
 
     return view;

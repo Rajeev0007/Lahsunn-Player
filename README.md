@@ -10,6 +10,8 @@ lyrics — and never download a file.
 
 [Live site](https://loruplayer.vercel.app) · [Deploying](DEPLOY.md)
 
+<sub>Made by <b>Rajeev</b> &lt;/&gt;</sub>
+
 </div>
 
 ---
@@ -270,6 +272,10 @@ hidden `#__diag` element, which those scripts assert against.
   Loru matches to YouTube instead.
 - Imported playlists are snapshots; use **Refresh** on a playlist to re-read it.
 - Library data is per-browser. Use *Settings → Export library* to move it.
+
+## Credit
+
+Made by **Rajeev** `</>`
 
 ## Licence
 

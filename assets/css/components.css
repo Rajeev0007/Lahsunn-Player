@@ -1133,3 +1133,33 @@
 
 /* Belt and braces against a stray pixel of horizontal scroll */
 .view-wrap { overflow-x: clip; }
+
+
+/* ─────────────────────────── Credit ─────────────────────────── */
+.sidebar__credit {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 13px 4px;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  letter-spacing: .02em;
+  transition: color var(--t-fast);
+}
+.sidebar__credit:hover { color: var(--ink-2); }
+.sidebar__credit strong { font-weight: 700; color: var(--ink-2); }
+.sidebar__credit-tag {
+  font-family: var(--font-body);
+  font-weight: 700;
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Icon rail and collapsed states have no room for a byline */
+.app[data-sidebar="collapsed"] .sidebar__credit { display: none; }
+@media (min-width: 769px) and (max-width: 1024px) {
+  .sidebar__credit { display: none; }
+}

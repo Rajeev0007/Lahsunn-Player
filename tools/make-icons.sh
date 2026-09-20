@@ -49,23 +49,25 @@ cat > "$ROOT/_og-tmp.html" <<'EOF'
       radial-gradient(90% 120% at 12% 0%, rgba(168,85,247,.42), transparent 58%),
       radial-gradient(70% 100% at 100% 20%, rgba(34,211,238,.20), transparent 55%),
       linear-gradient(180deg,#0b0b13,#07070c);
-    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
     font-family:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;color:#f4f4f8;
   }
-  img{width:260px;display:block}
-  h1{margin:0;font-size:76px;font-weight:800;letter-spacing:-.02em;
+  img{width:190px;display:block}
+  h1{margin:0;font-size:62px;font-weight:800;letter-spacing:-.02em;
      background:linear-gradient(180deg,#f5f3ff,#c084fc 60%,#7c3aed);
      -webkit-background-clip:text;background-clip:text;color:transparent}
-  p{margin:0;font-size:31px;color:#b6b7c6;letter-spacing:-.01em;text-align:center;max-width:900px}
-  .chips{display:flex;gap:14px;margin-top:6px}
-  .chip{font-size:20px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
-    padding:10px 20px;border-radius:999px;border:1px solid rgba(255,255,255,.16);
+  p{margin:0;font-size:27px;color:#b6b7c6;letter-spacing:-.01em;text-align:center;max-width:900px}
+  .chips{display:flex;gap:12px;margin-top:2px}
+  .credit{margin-top:2px;font-size:21px;font-weight:600;color:#8b8ba3;letter-spacing:.02em}
+  .chip{font-size:18px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    padding:8px 18px;border-radius:999px;border:1px solid rgba(255,255,255,.16);
     background:rgba(255,255,255,.05);color:#ddd6fe}
 </style></head><body>
   <img src="/assets/img/logo.svg">
   <h1>LORU PLAYER</h1>
   <p>Stream any song from YouTube, Spotify and Audius — no downloads, no account</p>
   <div class="chips"><span class="chip">YouTube</span><span class="chip">Spotify</span><span class="chip">Audius</span></div>
+  <div class="credit">Made by Rajeev &lt;/&gt;</div>
 </body></html>
 EOF
 chrome --headless --no-sandbox --disable-gpu --no-proxy-server --hide-scrollbars \

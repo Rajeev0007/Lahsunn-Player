@@ -1,9 +1,9 @@
 /* ============================================================
-   Loru Player — ui/views-manage.js
+   Loru Player — ui/views/manage.js
    The two "management" screens: Link Sources and Settings,
    plus the import runner and Spotify connection helpers.
 
-   Registers itself on L.viewpages so ui/views.js can route to it
+   Registers itself on L.viewpages so ui/router.js can route to it
    without importing anything.
    ============================================================ */
 (function (L) {

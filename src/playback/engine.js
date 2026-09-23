@@ -1,5 +1,5 @@
 /* ============================================================
-   Loru Player — engine.js
+   Loru Player — playback/engine.js
    One queue, five playback backends:
      audio      → Audius streams, direct URLs, Apple/Spotify previews
      youtube    → YouTube IFrame Player

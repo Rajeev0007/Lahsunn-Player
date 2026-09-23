@@ -7,10 +7,8 @@
   Permissions-Policy: geolocation=(), camera=(), microphone=()
 
 # Never serve stale code: mismatched CSS and JS versions break the UI.
-/assets/css/*
-  Cache-Control: public, max-age=0, must-revalidate
-
-/assets/js/*
+# Everything under src/ is code.
+/src/*
   Cache-Control: public, max-age=0, must-revalidate
 
 /sw.js

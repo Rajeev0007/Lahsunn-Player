@@ -59,11 +59,14 @@ window.__loruErrors = [];
 })();
 </script>
 
-<link rel="stylesheet" href="assets/css/theme.css" />
-<link rel="stylesheet" href="assets/css/layout.css" />
-<link rel="stylesheet" href="assets/css/components.css" />
-<link rel="stylesheet" href="assets/css/forms.css" />
-<link rel="stylesheet" href="assets/css/overlays.css" />
+<!-- Order matters. These are unlayered stylesheets of mostly single-class
+     selectors, so equal-specificity rules are decided by which file loads last:
+     theme (tokens) → layout (shell) → components → forms → overlays. -->
+<link rel="stylesheet" href="src/styles/theme.css" />
+<link rel="stylesheet" href="src/styles/layout.css" />
+<link rel="stylesheet" href="src/styles/components.css" />
+<link rel="stylesheet" href="src/styles/forms.css" />
+<link rel="stylesheet" href="src/styles/overlays.css" />
 </head>
 <body>
 
@@ -377,28 +380,49 @@ window.__loruErrors = [];
 <div class="ctx-root" id="ctxRoot" hidden></div>
 <pre id="__diag" hidden aria-hidden="true"></pre>
 
-<script defer src="assets/js/utils.js"></script>
-<script defer src="assets/js/store.js"></script>
-<script defer src="assets/js/catalog.js"></script>
-<script defer src="assets/js/services/audius.js"></script>
-<script defer src="assets/js/services/youtube.js"></script>
-<script defer src="assets/js/services/spotify.js"></script>
-<script defer src="assets/js/services/soundcloud.js"></script>
-<script defer src="assets/js/services/itunes.js"></script>
-<script defer src="assets/js/services/lyrics.js"></script>
-<script defer src="assets/js/services/discord.js"></script>
-<script defer src="assets/js/services/importer.js"></script>
-<script defer src="assets/js/data.js"></script>
-<script defer src="assets/js/engine.js"></script>
-<script defer src="assets/js/visualizer.js"></script>
-<script defer src="assets/js/ui/components.js"></script>
-<script defer src="assets/js/ui/views/shared.js"></script>
-<script defer src="assets/js/ui/views/home.js"></script>
-<script defer src="assets/js/ui/views/search.js"></script>
-<script defer src="assets/js/ui/views/library.js"></script>
-<script defer src="assets/js/ui/views/manage.js"></script>
-<script defer src="assets/js/ui/views.js"></script>
-<script defer src="assets/js/ui/player.js"></script>
-<script defer src="assets/js/app.js"></script>
+<!-- ───────────────────────── Application ─────────────────────────
+     Plain scripts, not modules: every file is an IIFE that hangs its public
+     surface off the shared `window.Loru` namespace. So load order matters — a
+     file must come after anything it reads while defining itself. The grouping
+     below mirrors the src/ folders, and each group is a dependency layer.
+
+     Adding a file? Add it to this list *and* to the SHELL array in sw.js. -->
+
+<!-- core — helpers and reactive state that everything else builds on -->
+<script defer src="src/core/utils.js"></script>
+<script defer src="src/core/store.js"></script>
+
+<!-- content — the static browse catalogue -->
+<script defer src="src/content/catalog.js"></script>
+
+<!-- services — one file per external provider, no interdependencies -->
+<script defer src="src/services/audius.js"></script>
+<script defer src="src/services/youtube.js"></script>
+<script defer src="src/services/spotify.js"></script>
+<script defer src="src/services/soundcloud.js"></script>
+<script defer src="src/services/itunes.js"></script>
+<script defer src="src/services/lyrics.js"></script>
+<script defer src="src/services/discord.js"></script>
+<script defer src="src/services/importer.js"></script>
+
+<!-- content — routes a request to whichever service can answer it -->
+<script defer src="src/content/data.js"></script>
+
+<!-- playback — the queue, the backends, and the spectrum they feed -->
+<script defer src="src/playback/engine.js"></script>
+<script defer src="src/playback/visualizer.js"></script>
+
+<!-- ui — shared renderers, then each screen, then the router that maps to them -->
+<script defer src="src/ui/components.js"></script>
+<script defer src="src/ui/views/shared.js"></script>
+<script defer src="src/ui/views/home.js"></script>
+<script defer src="src/ui/views/search.js"></script>
+<script defer src="src/ui/views/library.js"></script>
+<script defer src="src/ui/views/manage.js"></script>
+<script defer src="src/ui/router.js"></script>
+<script defer src="src/ui/player.js"></script>
+
+<!-- boot — wires the chrome and starts the app -->
+<script defer src="src/app.js"></script>
 </body>
 </html>

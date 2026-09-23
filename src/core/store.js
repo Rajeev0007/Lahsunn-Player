@@ -1,5 +1,5 @@
 /* ============================================================
-   Loru Player — store.js
+   Loru Player — core/store.js
    Reactive state container + persisted library
    ============================================================ */
 (function (L) {

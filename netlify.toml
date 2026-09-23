@@ -16,14 +16,9 @@
     Permissions-Policy = "geolocation=(), camera=(), microphone=()"
 
 # Code must never be stale: a cached stylesheet paired with fresh JS
-# produces a half-broken interface.
+# produces a half-broken interface. Everything under src/ is code.
 [[headers]]
-  for = "/assets/*.css"
-  [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
-
-[[headers]]
-  for = "/assets/*.js"
+  for = "/src/*"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 

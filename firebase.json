@@ -6,9 +6,9 @@
       "**/.*",
       "**/node_modules/**",
       "tools/**",
+      "docs/**",
       "Dockerfile",
       "nginx.conf",
-      "DEPLOY.md",
       "README.md"
     ],
     "headers": [
@@ -20,7 +20,7 @@
         ]
       },
       {
-        "source": "/assets/@(js|css)/**",
+        "source": "/src/**",
         "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
       },
       {

@@ -1,5 +1,5 @@
 /* ============================================================
-   Loru Player — catalog.js
+   Loru Player — content/catalog.js
    Curated browse data + offline demo catalogue (?demo=1)
    ============================================================ */
 (function (L) {

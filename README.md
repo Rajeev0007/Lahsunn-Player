@@ -8,7 +8,7 @@
 Search YouTube's full catalogue, link your Spotify playlists, read synced
 lyrics — and never download a file.
 
-[Live site](https://loruplayer.vercel.app) · [Deploying](DEPLOY.md)
+[Live site](https://loruplayer.vercel.app) · [Deploying](docs/DEPLOY.md)
 
 <sub>Made by <b>Rajeev</b> &lt;/&gt;</sub>
 
@@ -108,7 +108,7 @@ python3 -m http.server 4173
 
 Add `?demo=1` for a sample catalogue that works with no connection at all.
 
-See **[DEPLOY.md](DEPLOY.md)** for Vercel, Netlify, Cloudflare Pages, GitHub
+See **[docs/DEPLOY.md](docs/DEPLOY.md)** for Vercel, Netlify, Cloudflare Pages, GitHub
 Pages, Firebase, Render and Docker — config for each is committed, and the app
 runs from a domain root or a subdirectory equally well.
 
@@ -164,41 +164,71 @@ node tools/test-presence.mjs   # verifies the bridge without Discord running
 
 ## Project layout
 
+Everything you edit is under `src/`. `assets/` is static media only.
+
 ```
 loru-player/
-├── index.html                  app shell, icon sprite, diagnostics hook
+├── index.html                  app shell, icon sprite, script load order
 ├── manifest.webmanifest        PWA metadata
 ├── sw.js                       service worker (code network-first)
-├── assets/
-│   ├── css/
-│   │   ├── theme.css           design tokens, reset, ambient background
-│   │   ├── layout.css          app shell, player bar, responsive rules
-│   │   └── components.css      buttons, cards, rows, modals, touch feedback
-│   ├── img/logo.svg            the one logo; PNGs are generated from it
-│   └── js/
-│       ├── utils.js            DOM helpers, formatting, storage, toasts
-│       ├── store.js            reactive state + persisted library
-│       ├── data.js             decides which service answers a request
-│       ├── catalog.js          browse data + offline demo catalogue
-│       ├── services/
-│       │   ├── youtube.js      search, IFrame player, key-less resolver
-│       │   ├── itunes.js       Apple search (JSONP fallback)
-│       │   ├── soundcloud.js   official widget playback
-│       │   ├── audius.js       key-less search / trending / streaming
-│       │   ├── spotify.js      PKCE auth, Web API, optional Premium player
-│       │   ├── lyrics.js       synced lyrics via LRCLIB
-│       │   ├── discord.js      posts presence to the local helper
-│       │   └── importer.js     link detection, routing, playback resolution
-│       ├── engine.js           queue + five playback backends
-│       ├── visualizer.js       canvas spectrum
-│       ├── ui/
-│       │   ├── components.js   shared renderers
-│       │   ├── views.js        home, search, library, playlists
-│       │   ├── views-manage.js link sources + settings
-│       │   └── player.js       player bar, queue, lyrics, full-screen
-│       └── app.js              router, theme, keyboard, touch, boot
-└── tools/                      dev helpers, excluded from deployments
+├── src/
+│   ├── app.js                  boot, shell chrome, hash navigation, keyboard
+│   ├── core/
+│   │   ├── utils.js            DOM helpers, formatting, storage, toasts
+│   │   └── store.js            reactive state + persisted library
+│   ├── content/
+│   │   ├── catalog.js          browse data + offline demo catalogue
+│   │   └── data.js             decides which service answers a request
+│   ├── services/               one file per provider, no interdependencies
+│   │   ├── youtube.js          search, IFrame player, key-less resolver
+│   │   ├── itunes.js           Apple search (JSONP fallback)
+│   │   ├── audius.js           key-less search / trending / streaming
+│   │   ├── soundcloud.js       official widget playback
+│   │   ├── spotify.js          PKCE auth, Web API, optional Premium player
+│   │   ├── lyrics.js           synced lyrics via LRCLIB
+│   │   ├── discord.js          posts presence to the local helper
+│   │   └── importer.js         link detection, routing, playback resolution
+│   ├── playback/
+│   │   ├── engine.js           one queue, five backends, Media Session
+│   │   └── visualizer.js       canvas spectrum
+│   ├── ui/
+│   │   ├── components.js       shared renderers: cards, rows, modals, menus
+│   │   ├── player.js           player bar, queue panel, full screen, lyrics
+│   │   ├── router.js           route → screen, renders it, appends the footer
+│   │   └── views/
+│   │       ├── shared.js       skeletons, offline states, rails, playlist cards
+│   │       ├── home.js         hero, quick access, trending, moods, genres
+│   │       ├── search.js       cross-service search + pasted-link preview
+│   │       ├── library.js      playlists, liked, history, collection pages
+│   │       └── manage.js       Link Sources and Settings
+│   └── styles/
+│       ├── theme.css           design tokens, reset, ambient background
+│       ├── layout.css          app shell, sidebar rail, player bar, responsive
+│       ├── components.css      buttons, cards, rows, touch feedback
+│       ├── forms.css           inputs, selects, paste row
+│       └── overlays.css        modals, toasts, menus, lyrics, device tweaks
+├── assets/img/                 static media; logo.svg is the one source of truth
+├── docs/DEPLOY.md              hosting guide and cache-header rationale
+├── tools/                      dev helpers, excluded from deployments
+└── vercel.json · netlify.toml · firebase.json · render.yaml · Dockerfile · nginx.conf
 ```
+
+### Two rules when adding a file
+
+There is no bundler. Every file is an IIFE that hangs its public surface off the
+shared `window.Loru` namespace, so:
+
+1. **Add a `<script defer>` to `index.html`**, after anything it reads while
+   defining itself. The list there is grouped by the folders above, and each
+   group is a dependency layer: core → content → services → playback → ui → app.
+2. **Add the same path to the `SHELL` array in `sw.js`** and bump `VERSION`, or
+   the file won't be available offline.
+
+Stylesheet order matters too — the rules are mostly single-class selectors, so
+equal-specificity conflicts are decided by which file loads last. This is why
+`overlays.css` can override `layout.css` without extra specificity, and why the
+sidebar rail rules in `layout.css` are `.sidebar`-prefixed to outrank
+`components.css`.
 
 ### Playback backends
 

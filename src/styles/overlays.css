@@ -80,7 +80,10 @@
   .toast-stack { bottom: calc(var(--player-h) + var(--tabbar-h) + 14px + env(safe-area-inset-bottom)); left: 12px; right: 12px; max-width: none; }
 }
 .toast {
-  display: flex; align-items: center; gap: 11px;
+  /* Wraps so a long action label drops onto its own line instead of squeezing
+     the message into a two-word-wide column, which is what happened at phone
+     widths as soon as a toast had both real text and a button. */
+  display: flex; align-items: center; gap: 11px; flex-wrap: wrap;
   padding: 12px 14px;
   border-radius: var(--r-sm);
   background: var(--glass-strong);
@@ -98,11 +101,18 @@
 .toast__icon .icon { width: 16px; height: 16px; }
 .toast[data-kind="error"] .toast__icon { color: #f87171; background: color-mix(in oklab, #f87171 16%, transparent); }
 .toast[data-kind="success"] .toast__icon { color: #4ade80; background: color-mix(in oklab, #4ade80 16%, transparent); }
-.toast__body { flex: 1; min-width: 0; }
+/* flex-basis keeps the message on the first row next to the icon; the action
+   only shares that row when it genuinely fits. */
+.toast__body { flex: 1 1 62%; min-width: 0; }
 .toast__title { font-weight: 600; }
 .toast__text { color: var(--ink-3); font-size: var(--fs-xs); }
-.toast__action { font-weight: 700; font-size: var(--fs-sm); color: var(--accent-2); padding: 4px 6px; border-radius: 6px; }
+.toast__action {
+  flex: none; margin-left: auto;
+  font-weight: 700; font-size: var(--fs-sm); color: var(--accent-2);
+  padding: 4px 6px; border-radius: 6px;
+}
 .toast__action:hover { background: var(--surface-2); }
+[data-pointer="touch"] .toast__action { min-height: 40px; padding-inline: 10px; }
 
 /* ─────────────────────────── Context menu ─────────────────────────── */
 .ctx-root { position: fixed; inset: 0; z-index: var(--z-modal); }

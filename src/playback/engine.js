@@ -42,6 +42,7 @@
   let wakeLock = null;
   let keepAlive = null;
   let recoverTries = 0;
+  let warnedNoBackground = false;
 
   function ensureAudio(withCors) {
     if (audioEl && (!!audioEl.crossOrigin) === !!withCors) return audioEl;
@@ -221,6 +222,39 @@
     if (!wakeLock) return;
     try { wakeLock.release(); } catch (e) {}
     wakeLock = null;
+  }
+
+  /** Only a real media element survives the page being hidden. */
+  function canPlayInBackground() {
+    return backend === 'audio' || backend === 'demo';
+  }
+
+  /**
+   * The iframe backends are required to pause when the page is hidden, and
+   * nothing on our side can change that. Saying so once, at the moment it starts
+   * mattering, beats letting someone conclude background playback is broken —
+   * and the action gives them the one setting that can actually help.
+   */
+  function noteBackgroundLimit() {
+    if (warnedNoBackground || canPlayInBackground()) return;
+    if (!store.state.settings.backgroundAudio) return;      // they opted out
+    warnedNoBackground = true;
+    const offerAudius = !store.state.settings.adFreeFirst;
+    toast({
+      title: 'This track stops in the background',
+      text: offerAudius
+        ? 'Embedded players must pause when the tab is hidden. Audius streams keep playing.'
+        : 'Embedded players must pause when the tab is hidden, and Audius had no match for this one.',
+      action: offerAudius ? {
+        label: 'Use Audius first',
+        onClick: () => {
+          store.updateSettings({ adFreeFirst: true });
+          const t = store.currentTrack();
+          if (t) load(t, { autoplay: store.state.playing, startAt: store.state.position });
+        },
+      } : null,
+      timeout: 9000,
+    });
   }
 
   /** Feeds the OS scrubber. Driven by the element, so it stays live when hidden. */
@@ -478,11 +512,15 @@
     store.pushRecent(track);
     updateMediaSession();
 
-    // A track can play through YouTube either natively or as a matched
-    // stand-in for a Spotify track (which keeps its own source/identity).
-    const ytVideoId = playable.source === 'youtube'
-      ? playable.videoId
-      : (playable.playbackVia === 'youtube' ? playable.ytVideoId : null);
+    /* A track can play through YouTube either natively or as a matched stand-in
+       for a Spotify/Apple track (which keeps its own source and identity).
+       `playbackVia`, when set, names the backend we deliberately resolved to —
+       so a YouTube result that was matched onto Audius must not quietly fall
+       back to its own video id and end up on the embed anyway. */
+    const viaYouTube = playable.playbackVia
+      ? playable.playbackVia === 'youtube'
+      : playable.source === 'youtube';
+    const ytVideoId = viaYouTube ? (playable.videoId || playable.ytVideoId) : null;
     const isYouTube = !!ytVideoId;
     const isSpotifyNative = playable.source === 'spotify' && !playable.playbackVia && store.state.connections.spotify.premium;
     const isDemo = playable.source === 'demo';
@@ -497,7 +535,7 @@
         try { p.playVideo(); } catch (e) {}
         if (!autoplay) setTimeout(() => { try { p.pauseVideo(); } catch (e) {} }, 350);
         startTicker();
-        if (autoplay) watchForBlockedAutoplay(token);
+        if (autoplay) { watchForBlockedAutoplay(token); noteBackgroundLimit(); }
         return;
       }
 
@@ -563,6 +601,7 @@
 
         store.set({ loading: false });
         startTicker();
+        if (autoplay) noteBackgroundLimit();
         return;
       }
 
@@ -1057,5 +1096,7 @@
     get analyser() { return analyser; },
     get audioEl() { return audioEl; },
     get audioCtx() { return audioCtx; },
+    /** Whether the current backend can keep playing with the screen off. */
+    get backgroundCapable() { return canPlayInBackground(); },
   };
 })(window.Loru);

@@ -268,6 +268,28 @@
       throw err;
     }
 
+    /* A YouTube-sourced track plays through the embed, which YouTube requires to
+       pause the moment the page is hidden. Since search defaults to YouTube,
+       that was every track most people ever play — so "prefer ad-free sources"
+       promised Audius-before-YouTube in its own description while this function
+       handed YouTube results straight back untouched. When the setting is on,
+       look for the same song on Audius first: that streams to a plain audio
+       element and keeps playing with the screen off. Mainstream songs usually
+       aren't on Audius, so a miss falls straight back to the embed. */
+    if (track.source === 'youtube') {
+      if (!store.state.settings.adFreeFirst) return { track };
+      const match = await audius.findMatch(track.title, track.artist).catch(() => null);
+      if (!match) return { track };
+      return {
+        track: {
+          ...track, playbackVia: 'audius', matchedFrom: 'youtube',
+          streamUrl: match.streamUrl, audiusId: match.id,
+          duration: match.duration || track.duration,
+        },
+        note: `Ad-free Audius match, so this one keeps playing in the background: “${match.title}”.`,
+      };
+    }
+
     if (track.source !== 'spotify') return { track };
     // Only hand playback to Spotify when the listener asked for it
     if (store.state.connections.spotify.premium && spotify.usePremiumPlayer()) return { track };

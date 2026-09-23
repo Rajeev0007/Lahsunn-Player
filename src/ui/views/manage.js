@@ -456,7 +456,16 @@
             onclick: () => { store.updateSettings({ defaultSource: id }); render(store.state.route, true); },
           }, label)))),
       toggleRow('Play Spotify tracks via YouTube', 'Without Premium, find the full song on YouTube instead of playing a 30-second preview.', 'preferYouTubeForSpotify'),
-      toggleRow('Prefer ad-free sources', 'Look on Audius before YouTube. Audius never serves ads and keeps playing in the background, but it only carries independent artists — mainstream songs will often fall back to YouTube anyway.', 'adFreeFirst'),
+      toggleRow(
+        'Prefer ad-free sources',
+        'Look on Audius before YouTube, for search results as well as linked Spotify and Apple tracks. Audius never serves ads and is the only source that keeps playing once you lock the phone — but it only carries independent artists, so mainstream songs still fall back to YouTube. Costs one extra lookup per track.',
+        'adFreeFirst',
+        () => {
+          // Takes effect on the next track otherwise, which looks like nothing happened.
+          const t = store.currentTrack();
+          if (t) L.engine.load(t, { autoplay: store.state.playing, startAt: store.state.position });
+        },
+      ),
       backgroundRow(),
       toggleRow('Demo content', 'Fills the app with a sample catalogue that works with no connection.', 'demoMode', (on) => {
         on ? data.enableDemo() : data.disableDemo();
@@ -703,8 +712,23 @@
       ['Audius', true, 'Plays with the screen off'],
       ['Direct links & radio', true, 'Plays with the screen off'],
       ['Apple & Spotify previews', true, 'Plays with the screen off'],
-      ['YouTube', false, 'Pauses when you leave the tab'],
+      ['YouTube search results', false, 'Pauses when you leave the tab'],
+      ['SoundCloud', false, 'Pauses when you leave the tab'],
     ];
+
+    /* Search defaults to YouTube, so without this the most common case is also
+       the one that cannot play in the background — worth stating plainly. */
+    const current = L.engine.backend === 'none'
+      ? null
+      : el('div.callout' + (L.engine.backgroundCapable ? '' : '.callout--warn'), { style: { marginBottom: '12px' } }, [
+        icon(L.engine.backgroundCapable ? 'check' : 'info'),
+        el('div', [
+          el('strong', L.engine.backgroundCapable
+            ? 'The track playing now keeps going in the background. '
+            : 'The track playing now stops in the background. '),
+          `It is on the ${L.engine.backend} backend.`,
+        ]),
+      ]);
 
     return el('div', [
       toggleRow(
@@ -720,6 +744,7 @@
       settingRow('Which sources can play in the background', 'Switching apps or locking the phone.',
         el('span.status-pill', [el('i'), 'Depends on source'])),
       el('div', { style: { paddingBottom: '14px' } }, [
+        current,
         ...supported.map(([name, ok, note]) => el('div.kbd-row', [
           el('span', { text: name }),
           el('span', {
@@ -731,9 +756,9 @@
           icon('info'),
           el('div', [
             el('strong', 'YouTube stops in the background by design. '),
-            'Its embedded player is required to pause when the page is hidden, and that restriction is what YouTube Premium lifts. Loru cannot override it without breaking YouTube’s terms. For uninterrupted background listening, turn on ',
+            'Its embedded player is required to pause when the page is hidden, and that restriction is what YouTube Premium lifts. Loru cannot override it without breaking YouTube’s terms. Since search defaults to YouTube, this is the usual case — turn on ',
             el('strong', '“Prefer ad-free sources”'),
-            ' above so Audius is used when it has the track — or install Loru to your home screen, which keeps it alive longer on Android.',
+            ' above and Loru will look for an Audius copy of each track first, which does keep playing. Installing Loru to your home screen also keeps it alive longer on Android.',
           ]),
         ]),
       ]),

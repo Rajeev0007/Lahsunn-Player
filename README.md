@@ -249,8 +249,21 @@ synthetic waveform rather than going silent.
 ### Background playback
 
 Only the `HTMLAudioElement` backend can play with the page hidden or the phone
-locked; the iframe-based backends are contractually required to pause. Keeping
-that backend alive takes more than just leaving it running:
+locked; the iframe-based backends are contractually required to pause. So
+background playback is really two problems: **reaching** that backend, and
+**keeping it alive** once you are there.
+
+**Reaching it.** Search defaults to YouTube, and a YouTube result plays through
+the embed — so by default the common case is also the one that cannot play in the
+background. Turning on **Prefer ad-free sources** makes Loru look for an Audius
+copy of each track first, which streams to a plain audio element and keeps
+playing with the screen off. Audius only carries independent artists, so
+mainstream songs still fall back to the embed; when that happens Loru says so
+once, rather than letting playback die silently. `playbackVia` on the resolved
+track records which backend won, and `engine.backgroundCapable` reports whether
+the current one survives being hidden.
+
+**Keeping it alive** takes more than just leaving it running:
 
 - **The element is never trapped behind an AudioContext.** Drawing a real
   spectrum means routing playback through `createMediaElementSource`, and once

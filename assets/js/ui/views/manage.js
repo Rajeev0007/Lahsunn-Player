@@ -695,19 +695,29 @@
   }
 
   /**
-   * Background playback is decided by the browser and by each service, not by
-   * Loru, so this explains rather than promises.
+   * Background playback is partly ours to control and partly the browser's, so
+   * this offers the two switches that matter and is honest about the rest.
    */
   function backgroundRow() {
     const supported = [
       ['Audius', true, 'Plays with the screen off'],
       ['Direct links & radio', true, 'Plays with the screen off'],
-      ['Spotify previews', true, 'Plays with the screen off'],
+      ['Apple & Spotify previews', true, 'Plays with the screen off'],
       ['YouTube', false, 'Pauses when you leave the tab'],
     ];
 
     return el('div', [
-      settingRow('Background playback', 'Which sources keep playing when you switch apps or lock the phone.',
+      toggleRow(
+        'Keep playing in the background',
+        'Sends audio straight to the system so it survives locking the phone or switching apps, and adds full lock-screen controls. On phones this replaces the live spectrum with an animated stand-in, because the real one has to route audio through a graph the OS freezes in the background.',
+        'backgroundAudio',
+      ),
+      toggleRow(
+        'Keep the screen awake while playing',
+        'Only needed if your phone still cuts playback when the screen turns off. It uses noticeably more battery.',
+        'keepAwake',
+      ),
+      settingRow('Which sources can play in the background', 'Switching apps or locking the phone.',
         el('span.status-pill', [el('i'), 'Depends on source'])),
       el('div', { style: { paddingBottom: '14px' } }, [
         ...supported.map(([name, ok, note]) => el('div.kbd-row', [

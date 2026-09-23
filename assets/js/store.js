@@ -14,6 +14,8 @@
     accent: 'violet',
     autoplayNext: true,
     showVisualizer: true,
+    backgroundAudio: true,   // keep playing when hidden, even if the real spectrum has to go
+    keepAwake: false,        // hold a screen lock while playing (costs battery)
     preferYouTubeForSpotify: true,
     spotifyClientId: '',
     youtubeApiKey: '',

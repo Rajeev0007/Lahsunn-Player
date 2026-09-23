@@ -191,29 +191,70 @@
     throw new Error('Unsupported Audius link');
   }
 
+  function tokenSet(s) {
+    return new Set(normalizeText(s).split(' ').filter(Boolean));
+  }
+
+  /** Fraction of the larger token set that both share. 1 means identical. */
+  function overlap(a, b) {
+    if (!a.size || !b.size) return 0;
+    let hit = 0;
+    a.forEach((t) => { if (b.has(t)) hit += 1; });
+    return hit / Math.max(a.size, b.size);
+  }
+
   /**
-   * Best-effort match used to make Spotify / YouTube titles playable
-   * as full-length audio from Audius.
+   * Find the same recording on Audius, so a Spotify / YouTube / Apple title can
+   * be played as full-length audio that survives the screen locking.
+   *
+   * Confidence matters more than coverage here. The previous version compared
+   * titles only, accepted a match when either title merely *contained* the
+   * other — so "Lights" satisfied a search for "Blinding Lights" — and then
+   * ended with `return results[0]`, handing back the first search result even
+   * when nothing matched at all. The wrong song played, which is far worse than
+   * falling back to the embed and playing the right one.
+   *
+   * @returns {Promise<object|null>} null when there is no confident match.
    */
-  async function findMatch(title, artist) {
-    const attempts = [
-      `${title} ${artist}`.trim(),
-      title,
-    ].filter(Boolean);
+  async function findMatch(title, artist, { duration = 0 } = {}) {
+    const wantTitle = tokenSet(title);
+    if (!wantTitle.size) return null;
+    const wantArtist = tokenSet(artist);
+
+    const attempts = [`${title} ${artist}`.trim(), title].filter(Boolean);
+    let best = null;
 
     for (const q of attempts) {
-      try {
-        const results = await searchTracks(q, { limit: 8 });
-        if (!results.length) continue;
-        const needle = normalizeText(title);
-        const exact = results.find((t) => normalizeText(t.title) === needle);
-        if (exact) return exact;
-        const partial = results.find((t) => normalizeText(t.title).includes(needle) || needle.includes(normalizeText(t.title)));
-        if (partial) return partial;
-        return results[0];
-      } catch (e) { /* try next */ }
+      let results = [];
+      try { results = await searchTracks(q, { limit: 8 }); } catch (e) { continue; }
+
+      for (const t of results) {
+        const titleScore = overlap(wantTitle, tokenSet(t.title));
+        // The title has to be essentially the same, not merely related.
+        if (titleScore < 0.8) continue;
+
+        // An unknown uploader covering a famous song is the classic false
+        // positive, so the artist has to be plausible whenever we know it.
+        const artistScore = wantArtist.size ? overlap(wantArtist, tokenSet(t.artist)) : 1;
+        if (wantArtist.size && artistScore < 0.5) continue;
+
+        // Same name, very different length: a remix, a live cut, or a snippet.
+        if (duration && t.duration) {
+          const drift = Math.abs(t.duration - duration);
+          if (drift > Math.max(12, duration * 0.12)) continue;
+        }
+
+        const closeness = (duration && t.duration)
+          ? 1 - Math.min(1, Math.abs(t.duration - duration) / 30)
+          : 0;
+        const score = titleScore * 2 + artistScore + closeness;
+        if (!best || score > best.score) best = { track: t, score };
+      }
+
+      if (best) break;
     }
-    return null;
+
+    return best ? best.track : null;
   }
 
   function normalizeText(s) {

@@ -1,0 +1,184 @@
+name: Build installers
+
+# Produces the Windows .exe, a Linux AppImage and the Android .apk, then attaches
+# them to a GitHub Release.
+#
+# Runs on a version tag, or manually from the Actions tab. The toolchains are
+# large (Electron, the Android SDK) which is exactly why this happens here rather
+# than on anyone's laptop.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: desktop-windows
+          - os: ubuntu-latest
+            artifact: desktop-linux
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The site itself has no dependencies, so this only assembles dist/.
+      - name: Assemble the site
+        run: node scripts/build-site.mjs
+
+      - name: Install Electron toolchain
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+
+      - name: Build installers
+        working-directory: desktop
+        run: npx electron-builder --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/*.AppImage
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    # The `secrets` context cannot be read from a step-level `if`, so the keystore
+    # is mapped into the job environment here and the signing step tests that.
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Capacitor 6 builds against a JDK 21 toolchain.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # ubuntu-latest ships the Android SDK; this just makes the licences and
+      # build-tools explicit so Gradle does not stop to ask.
+      - uses: android-actions/setup-android@v3
+
+      - name: Assemble the site into mobile/www
+        run: node scripts/build-site.mjs --out mobile/www
+
+      - name: Install Capacitor
+        working-directory: mobile
+        run: npm install --no-audit --no-fund
+
+      - name: Generate the native project
+        working-directory: mobile
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      # Best effort: a missing or undersized source image should not fail the
+      # build, it just means the default Capacitor icon is used.
+      - name: Generate launcher icons
+        working-directory: mobile
+        continue-on-error: true
+        run: |
+          mkdir -p assets
+          cp ../assets/img/icon-512.png assets/icon.png
+          cp ../assets/img/icon-512.png assets/splash.png
+          npx @capacitor/assets generate --android
+
+      - name: Build debug APK
+        working-directory: mobile/android
+        run: ./gradlew --no-daemon assembleDebug
+
+      # A release APK must be signed to install at all. Signed automatically when
+      # a keystore is configured in repository secrets, otherwise the debug APK
+      # above is the shipped artifact — it installs fine by sideloading.
+      - name: Build signed release APK
+        if: env.KEYSTORE_B64 != ''
+        working-directory: mobile/android
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > release.keystore
+          ./gradlew --no-daemon assembleRelease \
+            -Pandroid.injected.signing.store.file="$PWD/release.keystore" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+          rm -f release.keystore
+
+      - name: Collect APKs
+        run: |
+          mkdir -p apk
+          VERSION=$(node -p "require('./mobile/package.json').version")
+          find mobile/android/app/build/outputs/apk -name '*.apk' -print0 | while IFS= read -r -d '' f; do
+            case "$f" in
+              *release*) cp "$f" "apk/LoruPlayer-$VERSION-release.apk" ;;
+              *)         cp "$f" "apk/LoruPlayer-$VERSION-debug.apk" ;;
+            esac
+          done
+          ls -la apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          if-no-files-found: error
+          path: apk/*.apk
+
+  release:
+    name: Publish release
+    needs: [desktop, android]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten
+        run: |
+          mkdir -p out
+          find artifacts -type f \( -name '*.exe' -o -name '*.AppImage' -o -name '*.apk' \) -exec cp {} out/ \;
+          ls -la out
+
+      # Uses the pre-authenticated gh CLI rather than a third-party action.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cat > notes.md <<'EOF'
+          Desktop and Android builds of Loru Player.
+
+          | Download | Platform |
+          | --- | --- |
+          | `LoruPlayer-*-win-x64.exe` | Windows installer |
+          | `LoruPlayer-*-portable.exe` | Windows, no install needed |
+          | `LoruPlayer-*-x64.AppImage` | Linux |
+          | `LoruPlayer-*.apk` | Android (sideload) |
+
+          Windows will warn that the publisher is unknown, and Android will ask you
+          to allow installing from this source. Both are because the builds are not
+          signed with a paid certificate — see docs/INSTALL.md.
+          EOF
+          gh release create "$TAG" out/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Loru Player $TAG" \
+            --notes-file notes.md \
+            --generate-notes

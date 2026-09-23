@@ -95,6 +95,20 @@ automatically.
 
 On touch devices, **long-press** any track, queue row or card for its menu.
 
+## Install it as an app
+
+Loru needs nothing installed — but if you want an icon, its own window and no
+browser chrome, the [Releases page](https://github.com/Rajeev0007/loruplayer/releases)
+has a Windows installer, a Linux AppImage and an Android APK. Same app, same
+streaming requirement; only the interface works offline.
+
+See **[docs/INSTALL.md](docs/INSTALL.md)** for the security prompts you will hit
+(the builds are unsigned), how to register the desktop Spotify redirect URI, and
+what background playback can and cannot do on Android.
+
+Building them yourself, or cutting a release, is **[docs/BUILD.md](docs/BUILD.md)** —
+push a `v*` tag and CI produces all three.
+
 ## Running it
 
 Loru must be served over **HTTP(S)**. Opening `index.html` from disk breaks the
@@ -208,10 +222,24 @@ loru-player/
 │       ├── forms.css           inputs, selects, paste row
 │       └── overlays.css        modals, toasts, menus, lyrics, device tweaks
 ├── assets/img/                 static media; logo.svg is the one source of truth
-├── docs/DEPLOY.md              hosting guide and cache-header rationale
+├── scripts/build-site.mjs      copies just the site into dist/ for packaging
+├── desktop/                    Electron shell -> .exe / AppImage / .dmg
+│   ├── main.js                 window, menu, external links
+│   ├── static-server.js        serves dist/ over http://127.0.0.1:4173
+│   └── package.json            electron-builder config
+├── mobile/                     Capacitor shell -> .apk
+│   ├── capacitor.config.json   android/ is generated, not committed
+│   └── package.json
+├── docs/
+│   ├── DEPLOY.md               hosting guide and cache-header rationale
+│   ├── INSTALL.md              for people installing the .exe or .apk
+│   └── BUILD.md                building the desktop and Android apps
 ├── tools/                      dev helpers, excluded from deployments
 └── vercel.json · netlify.toml · firebase.json · render.yaml · Dockerfile · nginx.conf
 ```
+
+The packaging toolchains live in `desktop/` and `mobile/` with their own
+`package.json`, so the root of the repository stays dependency-free.
 
 ### Two rules when adding a file
 

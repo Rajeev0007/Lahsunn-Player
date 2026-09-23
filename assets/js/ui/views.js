@@ -64,7 +64,9 @@
     });
 
     if (!playlists.length) {
-      items.push(el('div', { style: { padding: '14px 10px', fontSize: 'var(--fs-xs)', color: 'var(--ink-3)', lineHeight: '1.5' } },
+      // Needs a class rather than inline styles so the rail layout can hide it:
+      // a full sentence reflowed inside an 84px icon rail is 400px of stray text.
+      items.push(el('div.sidebar__empty',
         'No playlists yet. Paste a Spotify or YouTube link to bring yours in.'));
     }
 

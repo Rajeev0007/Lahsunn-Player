@@ -77,6 +77,8 @@ automatically.
 - **Discord presence** — show what you're listening to ([setup](#discord-presence)).
 - **Background playback** — keeps going when you lock the phone or switch apps,
   with full lock-screen and headset controls ([details](#background-playback)).
+- **Picks up where you left off** — the queue and the exact position in the track
+  survive closing the app, unless you were within three seconds of the end.
 - **Installable** as an app, with offline shell caching and OS media keys.
 - Light and dark themes, five accent ramps, a live visualizer, drag-to-reorder
   queue, and 15 keyboard shortcuts.
@@ -282,14 +284,17 @@ background playback is really two problems: **reaching** that backend, and
 **keeping it alive** once you are there.
 
 **Reaching it.** Search defaults to YouTube, and a YouTube result plays through
-the embed — so by default the common case is also the one that cannot play in the
-background. Turning on **Prefer ad-free sources** makes Loru look for an Audius
-copy of each track first, which streams to a plain audio element and keeps
-playing with the screen off. Audius only carries independent artists, so
-mainstream songs still fall back to the embed; when that happens Loru says so
-once, rather than letting playback die silently. `playbackVia` on the resolved
-track records which backend won, and `engine.backgroundCapable` reports whether
-the current one survives being hidden.
+the embed — so the most common case is the one that cannot play in the
+background. **Prefer ad-free sources** is therefore on by default: Loru looks for
+an Audius copy of each track first, which streams to a plain audio element and
+keeps playing with the screen off. It costs one extra lookup per track, and
+Audius only carries independent artists, so mainstream songs still fall back to
+the embed — when that happens Loru says so once rather than letting playback die
+silently. Turn it off if catalogue coverage matters more to you than playing with
+the screen off.
+
+`playbackVia` on the resolved track records which backend won, and
+`engine.backgroundCapable` reports whether the current one survives being hidden.
 
 **Keeping it alive** takes more than just leaving it running:
 

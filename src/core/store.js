@@ -21,12 +21,21 @@
     youtubeApiKey: '',
     youtubeMirror: '',
     defaultSource: 'youtube',
-    adFreeFirst: false,
+    /* On by default: it is the only thing that makes background playback work
+       for a normal search result. A YouTube result plays through the embed,
+       which must pause when the page is hidden, so Loru looks for an Audius
+       copy first. Costs one extra lookup per track; turn it off in Settings if
+       catalogue coverage matters more than playing with the screen off. */
+    adFreeFirst: true,
     spotifyUsePremiumPlayer: false,
     discordPresence: false,
     discordPort: 6472,
     demoMode: false,
     reduceData: false,
+    /* Bumped when a default changes in a way existing installs must pick up.
+       Spreading defaultSettings under stored settings is not enough: the old
+       value was already written to storage, so it would win forever. */
+    settingsVersion: 2,
   };
 
   const state = {
@@ -137,6 +146,13 @@
       queue: state.queue.slice(0, 250),
       queueOrigin: state.queueOrigin.slice(0, 250),
       index: state.index,
+      /* Where the track had got to, so reopening the app carries on rather than
+         restarting. Deliberately *not* in schedulePersist's trigger list: the
+         ticker updates position four times a second, and writing localStorage at
+         that rate would be the most expensive thing the app does. It is captured
+         on pause, on hide and on unload instead — see engine.js. */
+      position: state.position,
+      duration: state.duration,
       volume: state.volume,
       muted: state.muted,
       shuffle: state.shuffle,
@@ -148,7 +164,18 @@
 
   function hydrate() {
     const settings = storage.get('settings', null);
-    if (settings) state.settings = { ...defaultSettings, ...settings };
+    if (settings) {
+      state.settings = { ...defaultSettings, ...settings };
+
+      /* v2: adFreeFirst became the default, because without it a YouTube search
+         result — which is most of them — can never play in the background.
+         Anyone upgrading has `false` already persisted, so it has to be applied
+         explicitly rather than inherited from defaultSettings. */
+      if (!settings.settingsVersion || settings.settingsVersion < 2) {
+        state.settings.adFreeFirst = true;
+        state.settings.settingsVersion = 2;
+      }
+    }
 
     state.playlists = storage.get('playlists', []) || [];
     state.liked = storage.get('liked', []) || [];
@@ -165,6 +192,16 @@
       state.repeat = ['off', 'all', 'one'].includes(pb.repeat) ? pb.repeat : 'off';
       state.context = pb.context || null;
       state.sidebarCollapsed = !!pb.sidebarCollapsed;
+
+      /* Restore where playback had got to. Clamped, and dropped entirely if it
+         is within a few seconds of the end — resuming a track at 0:02 remaining
+         is worse than starting it again. */
+      if (typeof pb.duration === 'number' && pb.duration > 0) state.duration = pb.duration;
+      if (typeof pb.position === 'number' && pb.position > 1) {
+        const dur = state.duration || 0;
+        state.position = dur ? Math.min(pb.position, Math.max(0, dur - 3)) : pb.position;
+        if (dur && pb.position >= dur - 3) state.position = 0;
+      }
     }
   }
 

@@ -629,7 +629,14 @@
       corsOk = wantCors;
       a.src = src;
       a.volume = store.state.muted ? 0 : store.state.volume;
-      if (startAt) { try { a.currentTime = startAt; } catch (e) {} }
+      /* currentTime cannot be set until the element knows how long the media is:
+         on a freshly assigned src the assignment is silently discarded, which is
+         why resuming a track used to start it from the beginning. */
+      if (startAt > 0) {
+        const seek = () => { try { a.currentTime = startAt; } catch (e) {} };
+        if (a.readyState >= 1) seek();
+        else a.addEventListener('loadedmetadata', seek, { once: true });
+      }
 
       if (autoplay) {
         try {
@@ -700,7 +707,12 @@
   function play() {
     const track = store.currentTrack();
     if (!track) return;
-    if (backend === 'none') { load(track, { autoplay: true }); return; }
+    /* First play of a session: nothing is loaded yet, so hand load() the
+       restored offset. Every backend already honours startAt. */
+    if (backend === 'none') {
+      load(track, { autoplay: true, startAt: store.state.position || 0 });
+      return;
+    }
 
     if (backend === 'audio' && audioEl) {
       resumeAudioCtx();
@@ -730,6 +742,10 @@
     store.set({ playing: false });
     stopKeepAlive();
     releaseWakeLock();
+    /* Capture the position now. It is excluded from the debounced persist on
+       purpose (the ticker runs 4x a second), so pausing is one of the few
+       moments it gets written. */
+    store.persistNow();
   }
 
   function toggle() {
@@ -951,10 +967,16 @@
   /* ---------------- init ---------------- */
   function init() {
     applyVolume();
-    // Resume a persisted queue without auto-starting audio
+    /* Restore the persisted queue without auto-starting audio, but keep the
+       position the store rehydrated: pressing play should carry on from where
+       the last session stopped, not restart the track. This used to zero it. */
     const track = store.currentTrack();
     if (track) {
-      store.set({ duration: track.duration || 0, position: 0, playing: false });
+      const duration = track.duration || store.state.duration || 0;
+      const position = duration
+        ? Math.min(store.state.position || 0, Math.max(0, duration - 3))
+        : (store.state.position || 0);
+      store.set({ duration, position, playing: false });
     }
 
     // media session integration (lock screen / OS controls / headset buttons)
@@ -1023,9 +1045,13 @@
        get trapped behind a suspended AudioContext. YouTube's embed, by
        contrast, is required to pause; when the user comes back, offer to resume
        rather than leaving them looking at a stalled player. */
+    /* beforeunload is unreliable on phones — a backgrounded tab is often killed
+       without it — so pagehide and hiding are where the resume point is saved. */
+    window.addEventListener('pagehide', () => store.persistNow());
+
     document.addEventListener('visibilitychange', () => {
       resumeAudioCtx();
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible') { store.persistNow(); return; }
 
       if (store.state.playing) { startTicker(); startKeepAlive(); }
       requestWakeLock();            // the OS drops screen locks whenever we hide

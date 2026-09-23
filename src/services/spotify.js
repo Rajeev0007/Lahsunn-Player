@@ -22,6 +22,8 @@
     'user-read-private', 'user-read-email',
     'playlist-read-private', 'playlist-read-collaborative',
     'user-library-read', 'user-top-read',
+    // recentlyPlayed() calls /me/player/recently-played, which 403s without this.
+    'user-read-recently-played',
   ].join(' ');
 
   const PLAYBACK_SCOPES = [
@@ -32,11 +34,26 @@
     return !!store.state.settings.spotifyUsePremiumPlayer;
   }
 
+  /**
+   * Always ask for the playback scopes, even though most listeners never use
+   * them. Scopes are fixed at consent time, so requesting them conditionally
+   * meant anyone who connected first and enabled Spotify's own player afterwards
+   * held a token without `streaming` — the SDK then failed with a raw
+   * authentication error and no way to recover short of disconnecting by hand.
+   * A slightly longer consent screen is worth not having that trap.
+   */
   function scopes() {
-    return usePremiumPlayer() ? `${READ_SCOPES} ${PLAYBACK_SCOPES}` : READ_SCOPES;
+    return `${READ_SCOPES} ${PLAYBACK_SCOPES}`;
   }
 
-  const SCOPES = READ_SCOPES;
+  const SCOPES = scopes();
+
+  /* Filled in from /me. Spotify removed `market=from_token`, so requests that
+     need a market use the real country code and simply omit it otherwise. */
+  let userCountry = null;
+  function marketQuery(extra = {}) {
+    return userCountry ? { ...extra, market: userCountry } : { ...extra };
+  }
 
   const KEY_TOKENS = 'spotify:tokens';
   const KEY_VERIFIER = 'spotify:verifier';
@@ -208,7 +225,7 @@
   }
 
   /* ---------------- API ---------------- */
-  async function api(path, { method = 'GET', body, query } = {}) {
+  async function api(path, { method = 'GET', body, query } = {}, retried = false) {
     const access = await token();
     const url = path.startsWith('http')
       ? path
@@ -222,9 +239,39 @@
       body: body ? JSON.stringify(body) : undefined,
     });
     if (res.status === 204) return null;
-    if (res.status === 401) { logout(); throw new Error('Spotify session expired — reconnect in Settings.'); }
-    if (res.status === 403) throw new Error('Spotify refused that request (Premium may be required).');
-    if (res.status === 429) throw new Error('Spotify rate limit hit — wait a moment and retry.');
+
+    /* A 401 used to call logout(), which deletes the refresh token — so one
+       transient 401 (clock skew, a token revoked a second early, a hiccup on
+       Spotify's side) permanently signed the listener out and demanded a full
+       re-consent. Force one refresh and retry before concluding the session is
+       really gone. */
+    if (res.status === 401 && !retried) {
+      try { await refresh(); } catch (e) {
+        logout();
+        throw new Error('Spotify sign-in expired — reconnect in Settings.');
+      }
+      return api(path, { method, body, query }, true);
+    }
+    if (res.status === 401) {
+      logout();
+      throw new Error('Spotify sign-in expired — reconnect in Settings.');
+    }
+
+    if (res.status === 403) {
+      /* "Premium may be required" was shown for every 403, including missing
+         scopes and region blocks, which sent people chasing the wrong problem. */
+      let detail = '';
+      try { detail = (await res.json()).error.message; } catch (e) {}
+      throw new Error(detail
+        ? `Spotify refused that request: ${detail}`
+        : 'Spotify refused that request. Full-length playback needs Premium; everything else needs the app reconnected.');
+    }
+    if (res.status === 429) {
+      const wait = Number(res.headers.get('Retry-After') || 0);
+      throw new Error(wait
+        ? `Spotify rate limit hit — try again in ${wait}s.`
+        : 'Spotify rate limit hit — wait a moment and retry.');
+    }
     if (!res.ok) {
       let detail = '';
       try { detail = (await res.json()).error.message; } catch (e) {}
@@ -237,9 +284,11 @@
     try {
       const me = await api('/me');
       const premium = me.product === 'premium';
+      userCountry = me.country || null;
       store.setConnection('spotify', {
         connected: true,
         premium,
+        country: userCountry,
         user: { id: me.id, name: me.display_name || me.id, image: (me.images && me.images[0] && me.images[0].url) || null, product: me.product },
       });
       return me;
@@ -330,7 +379,7 @@
   async function getTrack(id) { return normalizeTrack(await api(`/tracks/${encodeURIComponent(id)}`)); }
 
   async function artistTop(id) {
-    const res = await api(`/artists/${encodeURIComponent(id)}/top-tracks`, { query: { market: 'from_token' } });
+    const res = await api(`/artists/${encodeURIComponent(id)}/top-tracks`, { query: marketQuery() });
     return (res.tracks || []).map(normalizeTrack).filter(Boolean);
   }
 
@@ -349,8 +398,8 @@
    * /categories for apps created after November 2024, so "trending" is built
    * from new releases plus the listener's own top tracks instead.
    */
-  async function newReleases({ limit = 12, market = 'from_token' } = {}) {
-    const res = await api('/browse/new-releases', { query: { limit, market } });
+  async function newReleases({ limit = 12 } = {}) {
+    const res = await api('/browse/new-releases', { query: marketQuery({ limit }) });
     const albums = (res.albums && res.albums.items) || [];
     const picks = await Promise.all(albums.slice(0, limit).map(async (album) => {
       try {

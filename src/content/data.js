@@ -111,9 +111,19 @@
     async trendingEverywhere({ limit = 18 } = {}) {
       if (this.demo) { catalog.demo.activate(); return { tracks: catalog.demo.trending(14), sources: ['demo'] }; }
 
+      /* Called through a helper rather than inline: `fetchers[src](12)` throws
+         synchronously if src is not a known fetcher (a stale or hand-edited
+         defaultSource), and a synchronous throw happens before .catch() can
+         apply, rejecting the whole row instead of degrading. */
+      const fetch = (src, n) => {
+        const fn = this.fetchers[src];
+        if (!fn) return Promise.resolve([]);
+        try { return Promise.resolve(fn(n)).catch(() => []); } catch (e) { return Promise.resolve([]); }
+      };
+
       const jobs = [
-        this.fetchers[this.source](12).catch(() => []),
-        ...this.order().slice(1, 3).map((s) => this.fetchers[s](8).catch(() => [])),
+        fetch(this.source, 12),
+        ...this.order().slice(1, 3).map((s) => fetch(s, 8)),
       ];
       if (this.spotifyReady) jobs.push(spotify.newReleases({ limit: 8 }).catch(() => []));
 
@@ -150,24 +160,41 @@
         return { tracks: catalog.demo.trending(18).slice().reverse(), seeds: ['your demo history'] };
       }
 
-      const seeds = await this.seedArtists();
-      if (!seeds.length) return null;
-
       const known = new Set(
         [...store.state.liked, ...store.state.recents]
           .map((t) => `${t.title}|${t.artist}`.toLowerCase().replace(/[^a-z0-9|]+/g, '')),
       );
 
+      const seeds = await this.seedArtists();
       const search = this.searchers[this.source] || this.searchers.youtube;
       const picked = seeds.slice(0, 4);
       const lists = await Promise.all(picked.map((artist) =>
         search(artist, 6).catch(() => [])));
+      const labels = picked.slice();
+
+      /* Spotify's own /recommendations is gone for apps registered after
+         November 2024, but the endpoints that still exist are better signals
+         than an artist-name search: short_term top tracks are literally "what
+         you have played lately", and new-releases is the freshest catalogue
+         Spotify will hand out. Blend both in when connected. */
+      if (this.spotifyReady) {
+        const [recent, fresh] = await Promise.all([
+          spotify.topTracks({ limit: 12, range: 'short_term' }).catch(() => []),
+          spotify.newReleases({ limit: 8 }).catch(() => []),
+        ]);
+        if (recent.length) { lists.unshift(recent); labels.unshift('your recent Spotify plays'); }
+        if (fresh.length) { lists.push(fresh); labels.push('new on Spotify'); }
+      }
+
+      /* Only now give up: with Spotify connected there is something to show even
+         on a first run, which the old seeds-only guard ruled out. */
+      if (!lists.some((l) => l.length)) return null;
 
       const tracks = dedupe(interleave(lists))
         .filter((t) => !known.has(`${t.title}|${t.artist}`.toLowerCase().replace(/[^a-z0-9|]+/g, '')))
         .slice(0, limit);
 
-      return tracks.length ? { tracks, seeds: picked } : null;
+      return tracks.length ? { tracks, seeds: labels.slice(0, 5) } : null;
     },
 
     /** Most frequent artists across likes, history and Spotify tops. */
@@ -228,7 +255,29 @@
         catalog.demo.activate();
         return genre ? catalog.demo.byGenre(genre) : catalog.demo.trending(14);
       }
-      return genre ? audius.trending({ genre, limit: 14 }) : audius.trending({ limit: 14 });
+      /* Genres used to be hardcoded to Audius, which is why every genre page
+         looked like nothing but obscure independent releases regardless of the
+         chosen source. Search the selected service by genre name and keep Audius
+         as the fallback, since it is the only one with a real genre filter. */
+      if (genre) {
+        const search = this.searchers[this.source];
+        if (search && this.source !== 'audius') {
+          const tracks = await search(genre, 14).catch(() => []);
+          if (tracks.length) return tracks;
+        }
+        return audius.trending({ genre, limit: 14 });
+      }
+      return audius.trending({ limit: 14 });
+    },
+
+    /**
+     * Newest independent releases. home.js has always called this; it was never
+     * implemented, so that row rendered "data.underground is not a function"
+     * every single load.
+     */
+    async underground({ limit = 20 } = {}) {
+      if (this.demo) { catalog.demo.activate(); return catalog.demo.trending(12); }
+      return audius.underground({ limit });
     },
   };
 

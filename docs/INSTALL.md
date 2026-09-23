@@ -45,10 +45,14 @@ YouTube's terms.
 What plays with the screen off: **Audius**, direct links and radio streams. Apple
 and Spotify previews also work, but they are 30 seconds long.
 
-So: turn on **Settings → Playback → Prefer ad-free sources**. Loru then looks for
-an Audius copy of each track first, which streams as plain audio and keeps
-playing. Audius only carries independent artists, so mainstream songs will still
-fall back to YouTube, and Loru will tell you when that happens.
+**Settings → Playback → Prefer ad-free sources** is on by default for exactly
+this reason: Loru looks for an Audius copy of each track first, which streams as
+plain audio and keeps playing. Audius only carries independent artists, so
+mainstream songs still fall back to YouTube, and Loru tells you when that
+happens.
+
+If you have **Spotify Premium**, connecting it and accepting the "Use Spotify's
+player" prompt gets you full-length mainstream tracks without the embed at all.
 
 Android may still stop playback eventually if it decides to reclaim memory.
 Reliable lock-screen playback needs a foreground service, which this build does

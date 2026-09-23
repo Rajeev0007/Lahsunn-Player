@@ -236,7 +236,7 @@
        the full song elsewhere and keep the preview as the fallback. */
     if (track.source === 'itunes') {
       const full = store.state.settings.adFreeFirst
-        ? (await audius.findMatch(track.title, track.artist).catch(() => null))
+        ? (await audius.findMatch(track.title, track.artist, { duration: track.duration }).catch(() => null))
         : null;
       if (full) {
         return {
@@ -278,7 +278,7 @@
        aren't on Audius, so a miss falls straight back to the embed. */
     if (track.source === 'youtube') {
       if (!store.state.settings.adFreeFirst) return { track };
-      const match = await audius.findMatch(track.title, track.artist).catch(() => null);
+      const match = await audius.findMatch(track.title, track.artist, { duration: track.duration }).catch(() => null);
       if (!match) return { track };
       return {
         track: {
@@ -311,7 +311,7 @@
     };
 
     const tryAudius = async () => {
-      const match = await audius.findMatch(track.title, track.artist).catch(() => null);
+      const match = await audius.findMatch(track.title, track.artist, { duration: track.duration }).catch(() => null);
       if (!match) return null;
       return {
         track: {

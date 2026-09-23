@@ -12,6 +12,8 @@
 
   const API = 'https://lrclib.net/api';
   const CACHE_PREFIX = 'lyrics:';
+  /** Sentinel for "nothing cached", distinct from a cached null. */
+  const CACHE_MISS = { miss: true };
 
   /* ---------------- query preparation ---------------- */
 
@@ -47,8 +49,16 @@
 
     artist = artist.replace(/\s*-\s*Topic$/i, '').replace(/VEVO$/i, '').trim();
 
-    // drop featured-artist clutter that rarely matches
-    title = title.replace(/\s*\b(feat|ft|featuring)\b\.?.*$/i, '').trim();
+    /* Drop featured-artist clutter, which rarely matches. The bracketed form has
+       to go first: stripping from the word "feat" onwards left the opening
+       bracket behind, turning "Song (feat. X)" into "Song (" — a title LRCLIB
+       could never match. */
+    title = title
+      .replace(/\s*[\(\[]\s*(feat|ft|featuring|with)\b[^)\]]*[\)\]]?/gi, '')
+      .replace(/\s*\b(feat|ft|featuring)\b\.?\s.*$/i, '')
+      .replace(/\s*[\(\[]\s*$/, '')       // any bracket left dangling
+      .replace(/\s{2,}/g, ' ')
+      .trim();
 
     if (!title) return null;
     return { title, artist, duration: Math.round(track.duration || 0), album: track.album || '' };
@@ -136,9 +146,16 @@
     const q = normalizeQuery(track);
     if (!q) return null;
 
+    /* A miss has to be distinguishable from a cached "this track has no lyrics",
+       and `undefined` cannot do that job: storage.session.get declares
+       `fallback = null`, and passing `undefined` explicitly counts as not passing
+       it at all, so a missing key came back as null. The old check was
+       `cached !== undefined`, which null satisfies — so this returned null for
+       every track before it ever reached the network, and lyrics never loaded at
+       all. A unique object reference cannot be confused with a stored value. */
     const key = cacheKey(q);
-    const cached = L.storage.session.get(key, undefined);
-    if (cached !== undefined) return cached;
+    const cached = L.storage.session.get(key, CACHE_MISS);
+    if (cached !== CACHE_MISS) return cached;
 
     let result = null;
     try {

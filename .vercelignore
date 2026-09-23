@@ -1,3 +1,9 @@
-# Not needed at runtime: dev-only headless-Chrome capture helpers, and docs.
+# Not needed at runtime: dev-only capture helpers, docs, and the desktop/Android
+# packaging projects.
 tools/
 docs/
+desktop/
+mobile/
+scripts/
+release/
+dist/

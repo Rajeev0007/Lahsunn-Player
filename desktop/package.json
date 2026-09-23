@@ -1,0 +1,76 @@
+{
+  "name": "loru-player-desktop",
+  "productName": "Loru Player",
+  "version": "1.2.0",
+  "private": true,
+  "description": "Loru Player as a desktop app: the web build in an Electron shell.",
+  "author": "Rajeev </>",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "main": "main.js",
+  "//": "The site itself has no dependencies. Electron lives here so the repository root stays dependency-free.",
+  "scripts": {
+    "prestart": "node ../scripts/build-site.mjs",
+    "start": "electron .",
+    "prebuild": "node ../scripts/build-site.mjs",
+    "build": "electron-builder --publish never",
+    "build:win": "node ../scripts/build-site.mjs && electron-builder --win --publish never",
+    "build:linux": "node ../scripts/build-site.mjs && electron-builder --linux --publish never",
+    "build:mac": "node ../scripts/build-site.mjs && electron-builder --mac --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.loruplayer.desktop",
+    "productName": "Loru Player",
+    "copyright": "Rajeev",
+    "directories": {
+      "output": "../release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "static-server.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist",
+        "to": "site"
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "../assets/img/icon-512.png",
+      "artifactName": "LoruPlayer-${version}-${os}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Loru Player"
+    },
+    "portable": {
+      "artifactName": "LoruPlayer-${version}-portable.${ext}"
+    },
+    "linux": {
+      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "icon": "../assets/img/icon-512.png",
+      "category": "AudioVideo;Audio;Player",
+      "artifactName": "LoruPlayer-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "icon": "../assets/img/icon-512.png",
+      "category": "public.app-category.music",
+      "artifactName": "LoruPlayer-${version}-${arch}.${ext}"
+    }
+  }
+}

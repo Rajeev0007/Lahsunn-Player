@@ -1,0 +1,14 @@
+{
+  "appId": "dev.loruplayer.app",
+  "appName": "Loru Player",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#07070cff",
+    "webContentsDebuggingEnabled": false
+  }
+}

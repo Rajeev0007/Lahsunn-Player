@@ -8,6 +8,44 @@
 
   const { $, $$, el, icon, store, engine, views, player, ui, spotify, importer, catalog, toast, debounce } = L;
 
+  /**
+   * Premium subscribers reach for Loru expecting full-length Spotify playback,
+   * but `spotifyUsePremiumPlayer` is off by default — so `resolvePlayable` sends
+   * their tracks to YouTube and Spotify looks like it did nothing. Say what is
+   * happening and make turning it on a single tap.
+   */
+  function offerPremiumPlayer() {
+    const sp = store.state.connections.spotify;
+    if (!sp.connected) return;
+
+    if (!sp.premium) {
+      toast({
+        kind: 'success',
+        title: 'Spotify connected',
+        text: 'Free account, so Spotify only allows 30-second previews — Loru will find the full song on YouTube or Audius instead.',
+      });
+      return;
+    }
+    if (store.state.settings.spotifyUsePremiumPlayer) {
+      toast({ kind: 'success', title: 'Spotify connected', text: 'Premium detected — playing full tracks through Spotify.' });
+      return;
+    }
+    toast({
+      kind: 'success',
+      title: 'Spotify Premium detected',
+      text: 'Loru is still playing these tracks from YouTube. Switch to Spotify’s own player for full-length, full-quality playback with no ads.',
+      action: {
+        label: 'Use Spotify’s player',
+        onClick: () => {
+          store.updateSettings({ spotifyUsePremiumPlayer: true });
+          const t = store.currentTrack();
+          if (t) engine.load(t, { autoplay: store.state.playing, startAt: store.state.position });
+        },
+      },
+      timeout: 12000,
+    });
+  }
+
   /* ============================================================
      Routing
      ============================================================ */
@@ -501,14 +539,22 @@
     try {
       const completed = await spotify.handleRedirect();
       if (completed) {
-        const sp = store.state.connections.spotify;
-        toast({
-          kind: 'success',
-          title: 'Spotify connected',
-          text: sp.premium ? 'Premium detected — full tracks available.' : 'Free account — songs will play in full from YouTube.',
-        });
+        offerPremiumPlayer();
       } else if (spotify.isConnected()) {
-        spotify.loadProfile().catch(() => {});
+        /* This used to be `.catch(() => {})`. When the profile call failed it
+           also cleared the stored tokens, so the listener was silently signed
+           out with no explanation and Spotify simply "stopped working". */
+        spotify.loadProfile()
+          .then(offerPremiumPlayer)
+          .catch((err) => {
+            toast({
+              kind: 'error',
+              title: 'Spotify needs reconnecting',
+              text: err.message,
+              action: { label: 'Open settings', onClick: () => { location.hash = '#/settings'; } },
+              timeout: 9000,
+            });
+          });
       }
     } catch (err) {
       toast({ kind: 'error', title: 'Spotify connection failed', text: err.message, timeout: 7000 });
@@ -516,6 +562,7 @@
 
     /* first route */
     if (!location.hash) location.replace('#/home');
+
     window.addEventListener('hashchange', onRouteChange);
     onRouteChange();
 

@@ -477,37 +477,48 @@
     const cached = L.storage.session.get(cacheKey, null);
     if (cached && cached.length) return cached;
 
-    for (const mirror of mirrorList()) {
-      try {
-        let items = [];
-        if (mirror.kind === 'piped') {
-          const res = await L.fetchJSON(`${mirror.base}/trending?region=${encodeURIComponent(region)}`, { timeout: 7000 });
-          items = (Array.isArray(res) ? res : []).map((it) => makeTrack({
-            videoId: it.url ? (it.url.split('v=')[1] || '').split('&')[0] : it.id,
-            title: it.title,
-            artist: it.uploaderName || it.uploader,
-            artwork: it.thumbnail,
-            duration: it.duration,
-            views: it.views,
-          }));
-        } else {
-          const res = await L.fetchJSON(`${mirror.base}/api/v1/trending?type=Music&region=${encodeURIComponent(region)}`, { timeout: 7000 });
-          items = (Array.isArray(res) ? res : []).map((it) => makeTrack({
-            videoId: it.videoId,
-            title: it.title,
-            artist: it.author,
-            artwork: (it.videoThumbnails && it.videoThumbnails.find((t) => t.quality === 'medium') || {}).url,
-            duration: it.lengthSeconds,
-            views: it.viewCount,
-          }));
-        }
+    /** One mirror's attempt, so several can be raced rather than queued. */
+    const fromMirror = async (mirror) => {
+      let items = [];
+      if (mirror.kind === 'piped') {
+        const res = await L.fetchJSON(`${mirror.base}/trending?region=${encodeURIComponent(region)}`, { timeout: 7000 });
+        items = (Array.isArray(res) ? res : []).map((it) => makeTrack({
+          videoId: it.url ? (it.url.split('v=')[1] || '').split('&')[0] : it.id,
+          title: it.title,
+          artist: it.uploaderName || it.uploader,
+          artwork: it.thumbnail,
+          duration: it.duration,
+          views: it.views,
+        }));
+      } else {
+        const res = await L.fetchJSON(`${mirror.base}/api/v1/trending?type=Music&region=${encodeURIComponent(region)}`, { timeout: 7000 });
+        items = (Array.isArray(res) ? res : []).map((it) => makeTrack({
+          videoId: it.videoId,
+          title: it.title,
+          artist: it.author,
+          artwork: (it.videoThumbnails && it.videoThumbnails.find((t) => t.quality === 'medium') || {}).url,
+          duration: it.lengthSeconds,
+          views: it.viewCount,
+        }));
+      }
+      const clean = items.filter(Boolean).slice(0, limit);
+      if (!clean.length) throw new Error('empty');
+      return clean;
+    };
 
-        const clean = items.filter(Boolean).slice(0, limit);
-        if (clean.length) {
-          L.storage.session.set(cacheKey, clean);
-          return clean;
-        }
-      } catch (e) { /* next mirror */ }
+    /* These mirrors are community-run and frequently dead. Trying them one at a
+       time meant up to fourteen sequential 7-second timeouts — about a minute and
+       a half of an empty home row. Race them in batches instead, the way search
+       already does. */
+    const all = mirrorList();
+    const BATCH = 5;
+    for (let i = 0; i < all.length; i += BATCH) {
+      const batch = all.slice(i, i + BATCH);
+      try {
+        const clean = await Promise.any(batch.map(fromMirror));
+        L.storage.session.set(cacheKey, clean);
+        return clean;
+      } catch (e) { /* every mirror in this batch failed; try the next */ }
     }
     throw new Error('Could not load YouTube trending right now.');
   }

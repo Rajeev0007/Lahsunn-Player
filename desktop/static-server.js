@@ -90,6 +90,9 @@ function startServer({ root, port = 4173, host = '127.0.0.1' }) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('Not found');
     }
+    let size = 0;
+    try { size = (await fsp.stat(file)).size; } catch { /* streamed below anyway */ }
+
     const headers = {
       'Content-Type': contentType(file),
       /* The bundled files change with every app update, and the service worker
@@ -97,12 +100,42 @@ function startServer({ root, port = 4173, host = '127.0.0.1' }) {
          survive an update. */
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
+      /* Without this the browser will not seek: dragging the progress bar issues
+         a ranged request, and a server that answers 200 with the whole file makes
+         the element refuse to move. Resuming a track mid-way needs it too. */
+      'Accept-Ranges': 'bytes',
     };
     if (path.basename(file) === 'sw.js') headers['Service-Worker-Allowed'] = '/';
 
-    if (req.method === 'HEAD') { res.writeHead(200, headers); return res.end(); }
+    if (req.method === 'HEAD') {
+      res.writeHead(200, { ...headers, 'Content-Length': size });
+      return res.end();
+    }
 
-    res.writeHead(200, headers);
+    const range = req.headers.range;
+    const match = range && /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    if (match && size) {
+      let start = match[1] === '' ? null : Number(match[1]);
+      let end = match[2] === '' ? null : Number(match[2]);
+      if (start === null && end !== null) { start = Math.max(0, size - end); end = size - 1; }
+      else { if (start === null) start = 0; if (end === null) end = size - 1; }
+
+      if (start > end || start >= size) {
+        res.writeHead(416, { 'Content-Range': `bytes */${size}` });
+        return res.end();
+      }
+      end = Math.min(end, size - 1);
+      res.writeHead(206, {
+        ...headers,
+        'Content-Range': `bytes ${start}-${end}/${size}`,
+        'Content-Length': end - start + 1,
+      });
+      return fs.createReadStream(file, { start, end })
+        .on('error', () => { res.destroy(); })
+        .pipe(res);
+    }
+
+    res.writeHead(200, { ...headers, ...(size ? { 'Content-Length': size } : {}) });
     fs.createReadStream(file)
       .on('error', () => { res.destroy(); })
       .pipe(res);

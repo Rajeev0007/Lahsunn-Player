@@ -1,6 +1,7 @@
 /* ============================================================
    Loru Player — app.js
-   Router, chrome wiring, keyboard control, boot sequence
+   Boot sequence, shell chrome, hash navigation, keyboard control.
+   Loads last: it wires together everything the other modules registered.
    ============================================================ */
 (function (L) {
   'use strict';

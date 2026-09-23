@@ -1,7 +1,9 @@
 /* ============================================================
-   Loru Player — ui/views/index.js  (assets/js/ui/views.js)
-   Router: resolves a route to a screen registered by the view
-   modules, renders it, and appends the site footer.
+   Loru Player — ui/router.js
+   Resolves a route to a screen registered by the modules in ui/views/,
+   renders it, and appends the site footer.
+
+   Loads *after* those modules, since it reads the registry they populate.
    ============================================================ */
 (function (L) {
   'use strict';
@@ -76,7 +78,7 @@
   /* ============================================================
      Router entry
      ============================================================ */
-  /* Screens contributed by other view modules (see views-manage.js) */
+  /* Screens contributed by the modules in ui/views/ */
   /* Screens register themselves on L.viewpages — see ui/views/*.js */
   const ROUTES = {};
 

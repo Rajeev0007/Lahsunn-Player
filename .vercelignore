@@ -1,2 +1,3 @@
-# Dev-only headless-Chrome capture helpers — not needed at runtime
+# Not needed at runtime: dev-only headless-Chrome capture helpers, and docs.
 tools/
+docs/

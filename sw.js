@@ -12,48 +12,61 @@
    ============================================================ */
 
 /* Bump on any change to SHELL so stale caches are discarded. */
-const VERSION = 'loru-v10';
+const VERSION = 'loru-v11';
 
 /* Code must never be served stale: a cache-first CSS file paired with freshly
    downloaded JS produces a half-broken UI (invisible panes, wrong layout).
    HTML, CSS and JS therefore go network-first and only fall back to cache when
    offline. Images and fonts stay cache-first, where staleness is harmless. */
 const CODE = /\.(html|css|js|webmanifest)$/i;
+/* Mirrors the load order in index.html — keep the two in step when adding a
+   file, or the new one simply won't be available offline. */
 const SHELL = [
   './',
   'index.html',
   'manifest.webmanifest',
-  'assets/css/theme.css',
-  'assets/css/layout.css',
-  'assets/css/components.css',
-  'assets/css/forms.css',
-  'assets/css/overlays.css',
-  'assets/js/utils.js',
-  'assets/js/store.js',
-  'assets/js/catalog.js',
-  'assets/js/services/audius.js',
-  'assets/js/services/youtube.js',
-  'assets/js/services/spotify.js',
-  'assets/js/services/soundcloud.js',
-  'assets/js/services/itunes.js',
-  'assets/js/services/lyrics.js',
-  'assets/js/services/discord.js',
-  'assets/js/services/importer.js',
-  'assets/js/data.js',
-  'assets/js/engine.js',
-  'assets/js/visualizer.js',
-  'assets/js/ui/components.js',
-  'assets/js/ui/views/shared.js',
-  'assets/js/ui/views/home.js',
-  'assets/js/ui/views/search.js',
-  'assets/js/ui/views/library.js',
-  'assets/js/ui/views/manage.js',
-  'assets/js/ui/views.js',
-  'assets/js/ui/player.js',
-  'assets/js/app.js',
+
+  'src/styles/theme.css',
+  'src/styles/layout.css',
+  'src/styles/components.css',
+  'src/styles/forms.css',
+  'src/styles/overlays.css',
+
+  'src/core/utils.js',
+  'src/core/store.js',
+
+  'src/content/catalog.js',
+
+  'src/services/audius.js',
+  'src/services/youtube.js',
+  'src/services/spotify.js',
+  'src/services/soundcloud.js',
+  'src/services/itunes.js',
+  'src/services/lyrics.js',
+  'src/services/discord.js',
+  'src/services/importer.js',
+
+  'src/content/data.js',
+
+  'src/playback/engine.js',
+  'src/playback/visualizer.js',
+
+  'src/ui/components.js',
+  'src/ui/views/shared.js',
+  'src/ui/views/home.js',
+  'src/ui/views/search.js',
+  'src/ui/views/library.js',
+  'src/ui/views/manage.js',
+  'src/ui/router.js',
+  'src/ui/player.js',
+
+  'src/app.js',
+
+  // The logo was listed three times here; the icons the manifest actually
+  // declares were not listed at all.
   'assets/img/logo.svg',
-  'assets/img/logo.svg',
-  'assets/img/logo.svg',
+  'assets/img/icon-192.png',
+  'assets/img/icon-512.png',
 ];
 
 self.addEventListener('install', (event) => {

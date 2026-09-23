@@ -16,10 +16,7 @@ services:
       - path: /sw.js
         name: Cache-Control
         value: public, max-age=0, must-revalidate
-      - path: /assets/js/*
-        name: Cache-Control
-        value: public, max-age=0, must-revalidate
-      - path: /assets/css/*
+      - path: /src/*
         name: Cache-Control
         value: public, max-age=0, must-revalidate
       - path: /assets/img/*

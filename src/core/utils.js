@@ -1,5 +1,5 @@
 /* ============================================================
-   Loru Player — utils.js
+   Loru Player — core/utils.js
    DOM helpers, formatting, storage, toasts
    ============================================================ */
 window.Loru = window.Loru || {};

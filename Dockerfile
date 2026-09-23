@@ -7,6 +7,7 @@ FROM nginx:1.27-alpine
 
 # Site files
 COPY index.html manifest.webmanifest sw.js /usr/share/nginx/html/
+COPY src/ /usr/share/nginx/html/src/
 COPY assets/ /usr/share/nginx/html/assets/
 
 # Server config (correct MIME types + cache policy)

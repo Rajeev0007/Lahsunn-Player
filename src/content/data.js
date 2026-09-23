@@ -1,5 +1,5 @@
 /* ============================================================
-   Loru Player — data.js
+   Loru Player — content/data.js
    The single place that decides *where* music comes from.
 
    Views ask for "charts" or "a mix" or "recommendations" and this

@@ -72,7 +72,7 @@ Every config here sets the same policy, and it matters:
 
 | Path | Policy | Why |
 | --- | --- | --- |
-| `/assets/js/*`, `/assets/css/*` | `max-age=0, must-revalidate` | Files aren't fingerprinted. Serving a cached stylesheet next to fresh JavaScript produces a half-broken interface — invisible panes, unhidden elements. This was a real bug. |
+| `/src/*` | `max-age=0, must-revalidate` | All the CSS and JavaScript lives here and none of it is fingerprinted. Serving a cached stylesheet next to fresh JavaScript produces a half-broken interface — invisible panes, unhidden elements. This was a real bug. |
 | `/sw.js` | `max-age=0, must-revalidate` | A cached service worker strands users on an old build. |
 | `/assets/img/*` | `max-age=604800` | Staleness is harmless here. |
 

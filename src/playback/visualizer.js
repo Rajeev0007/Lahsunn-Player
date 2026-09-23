@@ -1,5 +1,5 @@
 /* ============================================================
-   Loru Player — visualizer.js
+   Loru Player — playback/visualizer.js
    Canvas spectrum. Uses the real WebAudio analyser when the stream
    is CORS-clean; otherwise draws a smooth synthetic waveform so the
    UI never looks broken.

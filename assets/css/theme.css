@@ -55,6 +55,9 @@
   --z-topbar: 30;
   --z-player: 60;
   --z-tabbar: 55;
+  /* The mobile nav drawer is a modal surface, so it has to clear the player bar
+     and tab bar rather than slide underneath them. */
+  --z-drawer: 65;
   --z-np: 70;
   --z-modal: 90;
   --z-toast: 100;

@@ -12,7 +12,7 @@
    ============================================================ */
 
 /* Bump on any change to SHELL so stale caches are discarded. */
-const VERSION = 'loru-v9';
+const VERSION = 'loru-v10';
 
 /* Code must never be served stale: a cache-first CSS file paired with freshly
    downloaded JS produces a half-broken UI (invisible panes, wrong layout).

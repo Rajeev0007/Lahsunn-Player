@@ -1,10 +1,16 @@
 /* ============================================================
    Loru Player — engine.js
-   One queue, four playback backends:
-     audio    → Audius streams, direct URLs, Spotify previews
-     youtube  → YouTube IFrame Player
-     spotify  → Spotify Web Playback SDK (Premium)
-     demo     → offline WebAudio pad, used by ?demo=1
+   One queue, five playback backends:
+     audio      → Audius streams, direct URLs, Apple/Spotify previews
+     youtube    → YouTube IFrame Player
+     spotify    → Spotify Web Playback SDK (Premium)
+     soundcloud → SoundCloud widget iframe
+     demo       → offline WebAudio pad, used by ?demo=1
+
+   Only `audio` (and `demo`) can play with the page hidden or the phone locked;
+   the iframe-based backends are contractually required to pause. Everything
+   under "background playback" below exists to make sure that when a track *can*
+   keep playing, nothing on our side is what stops it.
    ============================================================ */
 (function (L) {
   'use strict';
@@ -19,11 +25,23 @@
   let corsOk = false;               // true when the current element is CORS-clean
   const noCorsHosts = new Set(L.storage.get('noCorsHosts', []) || []);
 
-  let backend = 'none';             // none | audio | youtube | spotify | demo
+  let backend = 'none';             // none | audio | youtube | spotify | soundcloud | demo
   let ytPlayer = null;
   let ytReadyPromise = null;
   let ticker = null;
   let pendingTrackToken = 0;
+
+  /* ---------------- background playback ---------------- */
+  const UA = navigator.userAgent || '';
+  const IS_IOS = /iP(ad|hone|od)/.test(UA) || (/Macintosh/.test(UA) && (navigator.maxTouchPoints || 0) > 1);
+  const IS_ANDROID = /Android/i.test(UA);
+  const IS_SAFARI = /Safari/i.test(UA) && !/Chrome|Chromium|CriOS|FxiOS|Edg/i.test(UA);
+  // Platforms that suspend an AudioContext as soon as the page is backgrounded.
+  const SUSPENDS_WHEN_HIDDEN = IS_IOS || IS_ANDROID || IS_SAFARI;
+
+  let wakeLock = null;
+  let keepAlive = null;
+  let recoverTries = 0;
 
   function ensureAudio(withCors) {
     if (audioEl && (!!audioEl.crossOrigin) === !!withCors) return audioEl;
@@ -40,6 +58,12 @@
 
     audioEl = document.createElement('audio');
     audioEl.preload = 'auto';
+    /* iOS only keeps a media element alive once the page is backgrounded if it
+       is a genuine inline, unmuted element attached to the document. */
+    audioEl.playsInline = true;
+    audioEl.setAttribute('playsinline', '');
+    audioEl.setAttribute('webkit-playsinline', '');
+    audioEl.muted = false;
     if (withCors) audioEl.crossOrigin = 'anonymous';
     audioEl.volume = store.state.muted ? 0 : store.state.volume;
     bindAudioEvents(audioEl);
@@ -63,6 +87,28 @@
     a.addEventListener('canplay', () => { if (backend === 'audio') store.set({ loading: false }); });
     a.addEventListener('ended', () => { if (backend === 'audio') handleEnded(); });
     a.addEventListener('error', () => { if (backend === 'audio') handleAudioError(); });
+
+    /* A hidden page has its timers throttled to a second or worse, but a
+       playing element keeps firing timeupdate at full rate. Driving position
+       from the element instead of the ticker is what keeps the progress bar,
+       the lock-screen scrubber and Discord presence honest in the background. */
+    a.addEventListener('timeupdate', () => {
+      if (backend !== 'audio') return;
+      const dur = Number.isFinite(a.duration) && a.duration ? a.duration : store.state.duration;
+      store.set({ position: a.currentTime || 0, duration: dur });
+      syncPositionState();
+    });
+    a.addEventListener('durationchange', () => {
+      if (backend !== 'audio' || !Number.isFinite(a.duration) || !a.duration) return;
+      store.set({ duration: a.duration });
+    });
+    a.addEventListener('play', () => {
+      if (backend !== 'audio') return;
+      recoverTries = 0;
+      // Publish metadata before the OS draws its notification, not after.
+      updateMediaSession();
+      startKeepAlive();
+    });
   }
 
   /** Retry without CORS (keeps audio working when the CDN sends no ACAO header). */
@@ -94,8 +140,22 @@
     if (store.state.settings.autoplayNext) setTimeout(() => next(true), 700);
   }
 
+  /**
+   * Feeding the element through a MediaElementSource is what powers the real
+   * spectrum, but it also means every sample has to travel through the
+   * AudioContext — and phones suspend that context the instant the page is
+   * backgrounded, which silences playback while currentTime happily keeps
+   * advancing. That is the classic "it says it's playing but I hear nothing"
+   * bug. On those platforms we leave the element wired straight to the hardware
+   * and let the visualizer use its synthetic waveform instead.
+   */
+  function graphIsSafe() {
+    if (!store.state.settings.backgroundAudio) return true;   // visuals over background
+    return !SUSPENDS_WHEN_HIDDEN;
+  }
+
   function ensureAnalyser() {
-    if (!corsOk || !audioEl) return null;
+    if (!corsOk || !audioEl || !graphIsSafe()) return null;
     try {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       if (!mediaSource) {
@@ -112,6 +172,69 @@
       analyser = null;
       return null;
     }
+  }
+
+  /** Safe to call as often as you like; a no-op unless the context is suspended. */
+  function resumeAudioCtx() {
+    if (!audioCtx || audioCtx.state !== 'suspended') return;
+    try { const p = audioCtx.resume(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+  }
+
+  /**
+   * The OS can suspend our context or pause our element without any matching
+   * event reaching the page. This watchdog spots the disagreement between what
+   * the UI believes and what the element is actually doing, and repairs it.
+   */
+  function startKeepAlive() {
+    stopKeepAlive();
+    keepAlive = setInterval(() => {
+      if (!store.state.playing) return;
+      resumeAudioCtx();
+      if (backend !== 'audio' || !audioEl || !audioEl.src) return;
+      if (audioEl.paused && !audioEl.ended && recoverTries < 3) {
+        recoverTries++;
+        const p = audioEl.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+    }, 1000);
+  }
+
+  function stopKeepAlive() {
+    if (keepAlive) { clearInterval(keepAlive); keepAlive = null; }
+  }
+
+  /**
+   * Opt-in screen lock. Some Android browsers tear down playback when the
+   * screen turns off, and holding a screen lock is the only way around it —
+   * at an obvious battery cost, hence off by default.
+   */
+  async function requestWakeLock() {
+    if (!store.state.settings.keepAwake || wakeLock) return;
+    if (!('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (e) { wakeLock = null; }
+  }
+
+  function releaseWakeLock() {
+    if (!wakeLock) return;
+    try { wakeLock.release(); } catch (e) {}
+    wakeLock = null;
+  }
+
+  /** Feeds the OS scrubber. Driven by the element, so it stays live when hidden. */
+  function syncPositionState() {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    const duration = store.state.duration;
+    if (!duration || !Number.isFinite(duration)) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        position: clamp(store.state.position || 0, 0, duration),
+        playbackRate: (audioEl && audioEl.playbackRate) || 1,
+      });
+    } catch (e) {}
   }
 
   /* ---------------- demo synth backend ---------------- */
@@ -353,6 +476,7 @@
     }
 
     store.pushRecent(track);
+    updateMediaSession();
 
     // A track can play through YouTube either natively or as a matched
     // stand-in for a Spotify track (which keeps its own source/identity).
@@ -461,7 +585,7 @@
       store.set({ backend });
       stopAllBackends('audio');
       const host = hostOf(src);
-      const wantCors = store.state.settings.showVisualizer && !noCorsHosts.has(host);
+      const wantCors = store.state.settings.showVisualizer && graphIsSafe() && !noCorsHosts.has(host);
       const a = ensureAudio(wantCors);
       corsOk = wantCors;
       a.src = src;
@@ -540,6 +664,7 @@
     if (backend === 'none') { load(track, { autoplay: true }); return; }
 
     if (backend === 'audio' && audioEl) {
+      resumeAudioCtx();
       audioEl.play().then(() => { if (corsOk) ensureAnalyser(); }).catch(() => {});
     } else if (backend === 'youtube' && ytPlayer) {
       try { ytPlayer.playVideo(); } catch (e) {}
@@ -553,6 +678,8 @@
       L.soundcloud.play();
     }
     startTicker();
+    startKeepAlive();
+    requestWakeLock();
   }
 
   function pause() {
@@ -562,6 +689,8 @@
     else if (backend === 'demo') synth.pause();
     else if (backend === 'soundcloud') L.soundcloud.pause();
     store.set({ playing: false });
+    stopKeepAlive();
+    releaseWakeLock();
   }
 
   function toggle() {
@@ -587,6 +716,7 @@
       if (wasPlaying) synth.start(store.currentTrack(), target);
     }
     store.set({ position: target });
+    syncPositionState();
   }
 
   function nudge(seconds) {
@@ -711,6 +841,8 @@
   function stop() {
     stopAllBackends(null);
     stopTicker();
+    stopKeepAlive();
+    releaseWakeLock();
     backend = 'none';
     store.set({ backend, playing: false, position: 0, duration: 0, index: -1, queue: [], queueOrigin: [] });
   }
@@ -786,25 +918,83 @@
       store.set({ duration: track.duration || 0, position: 0, playing: false });
     }
 
-    // media session integration (lock screen / OS controls)
+    // media session integration (lock screen / OS controls / headset buttons)
     if ('mediaSession' in navigator) {
-      store.on(['index', 'queue'], updateMediaSession);
-      navigator.mediaSession.setActionHandler('play', play);
-      navigator.mediaSession.setActionHandler('pause', pause);
-      navigator.mediaSession.setActionHandler('previoustrack', prev);
-      navigator.mediaSession.setActionHandler('nexttrack', () => next(false));
-      navigator.mediaSession.setActionHandler('seekbackward', () => nudge(-10));
-      navigator.mediaSession.setActionHandler('seekforward', () => nudge(10));
+      const ms = navigator.mediaSession;
+      store.on(['index', 'queue', 'backend'], updateMediaSession);
+
+      // Unsupported actions throw rather than no-op, so each one is guarded.
+      const handler = (name, fn) => { try { ms.setActionHandler(name, fn); } catch (e) {} };
+      handler('play', () => { resumeAudioCtx(); play(); });
+      handler('pause', pause);
+      handler('previoustrack', prev);
+      handler('nexttrack', () => next(false));
+      handler('seekbackward', (d) => nudge(-((d && d.seekOffset) || 10)));
+      handler('seekforward', (d) => nudge((d && d.seekOffset) || 10));
+      handler('seekto', (d) => {
+        const dur = store.state.duration;
+        if (!d || !dur || typeof d.seekTime !== 'number') return;
+        if (d.fastSeek && backend === 'audio' && audioEl && audioEl.fastSeek) {
+          try {
+            audioEl.fastSeek(d.seekTime);
+            store.set({ position: d.seekTime });
+            syncPositionState();
+            return;
+          } catch (e) { /* fall through to a normal seek */ }
+        }
+        seekTo(d.seekTime / dur);
+      });
+      handler('stop', () => { pause(); seekTo(0); });
+
+      updateMediaSession();
     }
     store.on('playing', (p) => {
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = p ? 'playing' : 'paused';
+      if (p) { startKeepAlive(); requestWakeLock(); } else { stopKeepAlive(); releaseWakeLock(); }
     });
 
-    /* HTML5 audio keeps going when the tab is hidden, so nothing to do there.
-       YouTube's embed is required to pause; when the user comes back, offer to
-       resume rather than leaving them looking at a stalled player. */
+    /* Both background switches change how the element is wired to the speakers,
+       so apply them the moment they are toggled instead of at the next track. */
+    store.on('settings', () => {
+      store.state.settings.keepAwake ? requestWakeLock() : releaseWakeLock();
+      if (backend !== 'audio' || !audioEl) return;
+      const src = audioEl.currentSrc || audioEl.src;
+      if (!src) return;
+      const want = store.state.settings.showVisualizer && graphIsSafe() && !noCorsHosts.has(hostOf(src));
+      if (want === corsOk) return;
+      const t = store.currentTrack();
+      if (t) load(t, { autoplay: store.state.playing, startAt: store.state.position });
+    });
+
+    /* Some browsers will only let a suspended context restart from a real user
+       gesture, so treat every interaction as a chance to recover. */
+    ['pointerdown', 'touchend', 'keydown'].forEach((evt) => {
+      document.addEventListener(evt, resumeAudioCtx, { capture: true, passive: true });
+    });
+
+    /* Coming back from the background: interval callbacks were throttled while
+       hidden and the context may have been suspended, so re-sync everything
+       from the element, which is the only thing that stayed accurate. */
+    window.addEventListener('pageshow', () => {
+      resumeAudioCtx();
+      if (store.state.playing) { startTicker(); startKeepAlive(); }
+    });
+
+    /* HTML5 audio keeps going when the tab is hidden as long as we never let it
+       get trapped behind a suspended AudioContext. YouTube's embed, by
+       contrast, is required to pause; when the user comes back, offer to resume
+       rather than leaving them looking at a stalled player. */
     document.addEventListener('visibilitychange', () => {
+      resumeAudioCtx();
       if (document.visibilityState !== 'visible') return;
+
+      if (store.state.playing) { startTicker(); startKeepAlive(); }
+      requestWakeLock();            // the OS drops screen locks whenever we hide
+      if (backend === 'audio' && audioEl) {
+        store.set({ position: audioEl.currentTime || 0 });
+        syncPositionState();
+      }
+
       if (backend !== 'youtube' || !ytPlayer) return;
       if (!store.state.playing) return;
       try {
@@ -822,6 +1012,25 @@
     });
   }
 
+  /**
+   * Android picks the closest size from the list and will fall back to a blank
+   * notification if nothing matches, so offer the artwork at every size it asks
+   * for and keep the app icon as a last resort.
+   */
+  function artworkFor(t) {
+    const list = [];
+    if (t.artwork) {
+      const type = /\.png(\?|#|$)/i.test(t.artwork) ? 'image/png' : 'image/jpeg';
+      ['96x96', '128x128', '192x192', '256x256', '384x384', '512x512']
+        .forEach((sizes) => list.push({ src: t.artwork, sizes, type }));
+    }
+    try {
+      list.push({ src: new URL('assets/img/icon-192.png', location.href).href, sizes: '192x192', type: 'image/png' });
+      list.push({ src: new URL('assets/img/icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' });
+    } catch (e) {}
+    return list;
+  }
+
   function updateMediaSession() {
     const t = store.currentTrack();
     if (!t || !('mediaSession' in navigator) || !window.MediaMetadata) return;
@@ -830,9 +1039,11 @@
         title: t.title || '',
         artist: t.artist || '',
         album: t.album || 'Loru Player',
-        artwork: t.artwork ? [{ src: t.artwork, sizes: '512x512', type: 'image/jpeg' }] : [],
+        artwork: artworkFor(t),
       });
+      navigator.mediaSession.playbackState = store.state.playing ? 'playing' : 'paused';
     } catch (e) {}
+    syncPositionState();
   }
 
   L.engine = {
@@ -841,9 +1052,10 @@
     playCollection, playTrack, addToQueue, addManyToQueue,
     removeFromQueue, moveInQueue, clearQueue,
     setShuffle, cycleRepeat, next, prev,
-    showYouTubeSurface, resumeFromGesture, prewarmYouTube,
+    showYouTubeSurface, resumeFromGesture, prewarmYouTube, resumeAudioCtx,
     get backend() { return backend; },
     get analyser() { return analyser; },
     get audioEl() { return audioEl; },
+    get audioCtx() { return audioCtx; },
   };
 })(window.Loru);

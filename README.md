@@ -75,6 +75,8 @@ automatically.
   likes, history, playlists and your Spotify top artists.
 - **Trending** blended from every service at once, labelled with which answered.
 - **Discord presence** — show what you're listening to ([setup](#discord-presence)).
+- **Background playback** — keeps going when you lock the phone or switch apps,
+  with full lock-screen and headset controls ([details](#background-playback)).
 - **Installable** as an app, with offline shell caching and OS media keys.
 - Light and dark themes, five accent ramps, a live visualizer, drag-to-reorder
   queue, and 15 keyboard shortcuts.
@@ -214,6 +216,34 @@ If a stream is served without CORS headers the engine transparently reloads it
 without `crossOrigin` so audio keeps working, and the visualizer falls back to a
 synthetic waveform rather than going silent.
 
+### Background playback
+
+Only the `HTMLAudioElement` backend can play with the page hidden or the phone
+locked; the iframe-based backends are contractually required to pause. Keeping
+that backend alive takes more than just leaving it running:
+
+- **The element is never trapped behind an AudioContext.** Drawing a real
+  spectrum means routing playback through `createMediaElementSource`, and once
+  that connection exists the element can never reach the speakers directly
+  again — so when a mobile OS suspends the context on backgrounding, output goes
+  silent while `currentTime` keeps advancing. That is the classic "it says it's
+  playing but I hear nothing" bug. On platforms that suspend contexts (iOS,
+  Android, Safari) Loru leaves the element wired straight to the hardware and the
+  visualizer uses its synthetic waveform. Turn off **Keep playing in the
+  background** to trade that back for the real spectrum.
+- **Position comes from the element, not a timer.** `timeupdate` keeps firing at
+  full rate while hidden, whereas the 250 ms interval is throttled to a second or
+  worse — so the seek bar, the lock-screen scrubber and Discord presence stay
+  accurate in the background.
+- **A watchdog repairs silent failures.** Once a second while playing it resumes
+  a suspended context and restarts an element the OS paused without telling us.
+- **Full Media Session wiring** — metadata is published before playback starts so
+  the OS notification appears immediately, artwork is offered at every size
+  Android asks for, and `play`, `pause`, `previoustrack`, `nexttrack`,
+  `seekbackward`, `seekforward`, `seekto` and `stop` are all handled.
+- **Optional screen lock** via the Wake Lock API, off by default, for the Android
+  browsers that still cut playback when the screen turns off.
+
 ## Branding
 
 **One logo: `assets/img/logo.svg`** — favicon, sidebar, topbar and welcome
@@ -267,7 +297,11 @@ hidden `#__diag` element, which those scripts assert against.
 - Videos whose uploader disables embedding, or that are region-blocked, cannot
   play in any embedded player. Loru skips them.
 - **YouTube pauses when the tab is hidden** — its embed is required to. Audius,
-  direct links and previews keep playing with the screen off.
+  direct links and previews keep playing with the screen off
+  ([how](#background-playback)).
+- **The live spectrum and background playback are mutually exclusive on phones.**
+  The real one needs a Web Audio graph that mobile OSes freeze when hidden, so
+  Loru keeps the audio and animates a stand-in. Desktop gets both.
 - Apple Music full playback needs a paid developer token plus a subscription, so
   Loru matches to YouTube instead.
 - Imported playlists are snapshots; use **Refresh** on a playlist to re-read it.

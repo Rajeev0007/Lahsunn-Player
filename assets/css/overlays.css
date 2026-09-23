@@ -251,6 +251,10 @@
 
 [data-pointer="touch"] .icon-btn { width: 42px; height: 42px; }
 [data-pointer="touch"] .icon-btn--sm { width: 36px; height: 36px; }
+/* The primary transport control was the one button never enlarged for touch,
+   despite being the most-tapped thing in the app and sitting right at the
+   screen edge in the mini player. */
+[data-pointer="touch"] .play-btn { width: 44px; height: 44px; }
 [data-pointer="touch"] .track { padding-block: 11px; }
 [data-pointer="touch"] .lyrics__line { padding-block: 10px; }
 [data-pointer="touch"] .slider { padding-block: 11px; }   /* easier to grab */
@@ -346,6 +350,16 @@
 /* Phone: moves below the search field so nothing is cramped */
 @media (max-width: 768px) {
   .topbar { flex-wrap: wrap; height: auto; padding-block: 10px 8px; row-gap: 8px; }
+  /* The installed-app rule above is an attribute selector, so it outweighs the
+     plain `.topbar` above on specificity and pins the height even though the
+     header now wraps onto three rows — which pushed the search field and source
+     switch straight out of the header and over the content. Restate it here at
+     equal specificity so `height: auto` wins, and fold the status-bar inset
+     into the padding instead. */
+  [data-standalone="true"] .topbar {
+    height: auto;
+    padding-top: calc(10px + env(safe-area-inset-top));
+  }
   .searchbar { order: 2; flex-basis: 100%; }
   .source-switch { order: 3; width: 100%; justify-content: space-between; }
   .source-switch__btn { flex: 1; justify-content: center; padding: 0; }
@@ -486,11 +500,8 @@
   color: transparent;
 }
 
-/* Icon rail and collapsed states have no room for a byline */
-.app[data-sidebar="collapsed"] .sidebar__credit { display: none; }
-@media (min-width: 769px) and (max-width: 1024px) {
-  .sidebar__credit { display: none; }
-}
+/* The byline is hidden in rail mode alongside every other sidebar label — see
+   the `@container sidebar` block in layout.css. */
 
 /* ─────────────────────────── Site footer ─────────────────────────── */
 .app-footer {

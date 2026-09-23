@@ -4,9 +4,15 @@
    mobile tab bar, now-playing sheet, responsive rules
    ============================================================ */
 
+/* No z-index here on purpose. Giving .app its own z-index makes it a stacking
+   context, which traps every layer inside it — sidebar, scrim, queue panel — on
+   .app's single level and therefore *below* the fixed .playerbar and .tabbar,
+   which are its siblings. That silently made the drawer's bottom rows and the
+   mobile queue sheet unclickable. `position: relative` alone keeps .app above
+   .ambient (both paint in the z-index:0/auto group, and .app comes later in the
+   document) without flattening its children. */
 .app {
   position: relative;
-  z-index: 1;
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr) 0;
   height: 100%;
@@ -20,6 +26,10 @@
 /* ─────────────────────────── Sidebar ─────────────────────────── */
 .sidebar {
   z-index: var(--z-sidebar);
+  /* Lets the sidebar's own contents react to the sidebar's own width — see the
+     rail container query below. */
+  container-type: inline-size;
+  container-name: sidebar;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -100,17 +110,38 @@
 .playlist-list { overflow-y: auto; min-height: 0; padding: 0 2px 8px; display: flex; flex-direction: column; gap: 2px; }
 
 .sidebar__foot { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+.sidebar__empty { padding: 14px 10px; font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.5; }
 
-/* Collapsed sidebar */
-.app[data-sidebar="collapsed"] .brand__text,
-.app[data-sidebar="collapsed"] .nav__item span:not(.nav__dot),
-.app[data-sidebar="collapsed"] .sidebar__label span,
-.app[data-sidebar="collapsed"] .pl-item__meta { display: none; }
-.app[data-sidebar="collapsed"] .nav__item { justify-content: center; padding-inline: 0; }
-.app[data-sidebar="collapsed"] .sidebar__head { justify-content: center; }
+/* ── Rail mode ──────────────────────────────────────────────────
+   The sidebar can shrink to an icon rail three different ways: the user
+   collapses it, the queue takes the space at ≤1180px, or it is the permanent
+   tablet rail at 769–1024px. This used to be written out once per trigger, and
+   the copies had drifted — the ≤1180px one was missing half its rules, so the
+   "PLAYLISTS" heading kept its label and the empty-state sentence reflowed into
+   ~400px of text inside an 84px rail, complete with a horizontal scrollbar.
+   Keying off the sidebar's own width instead means there is one definition and
+   every trigger behaves identically.
+
+   Every selector is deliberately prefixed with `.sidebar`. A container query
+   adds no specificity of its own, so a bare `.pl-item__meta` here would lose to
+   the `.pl-item__meta { display: flex }` in components.css simply because that
+   file loads later. The prefix also makes it obvious these only apply in here. */
+@container sidebar (max-width: 150px) {
+  .sidebar .brand__text,
+  .sidebar .nav__item span:not(.nav__dot),
+  .sidebar .sidebar__label span,
+  .sidebar .pl-item__meta,
+  .sidebar .sidebar__empty,
+  .sidebar .sidebar__credit { display: none; }
+  .sidebar .nav__item { justify-content: center; padding-inline: 0; }
+  .sidebar .sidebar__head { justify-content: center; }
+  .sidebar .sidebar__label { justify-content: center; padding-inline: 0; }
+  .sidebar .pl-item { justify-content: center; }
+}
+
+/* Only the user-collapsed state turns the control into a re-expand affordance. */
 .app[data-sidebar="collapsed"] .sidebar__collapse { rotate: 180deg; position: absolute; top: 22px; right: -13px; background: var(--surface-solid); border: 1px solid var(--border); }
 .app[data-sidebar="collapsed"] .sidebar { align-items: stretch; }
-.app[data-sidebar="collapsed"] .sidebar__label { justify-content: center; padding-inline: 0; }
 
 .sidebar-scrim {
   position: fixed; inset: 0; z-index: calc(var(--z-sidebar) - 1);
@@ -131,14 +162,20 @@
   transition: border-color var(--t), background var(--t);
 }
 .topbar.is-stuck { border-bottom-color: var(--border); background: var(--glass); }
-.topbar__left { display: flex; align-items: center; gap: 8px; }
+.topbar__left { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .topbar__menu { display: none; }
 .history-btns { display: flex; gap: 4px; }
-.topbar__right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+/* flex: none so the account controls keep their size and are never the thing
+   that gets pushed out of the header when width runs short. */
+.topbar__right { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
 
 .searchbar {
   position: relative; display: flex; align-items: center; gap: 10px;
-  flex: 1; max-width: 520px;
+  /* min-width: 0 is what actually lets this shrink. Without it the automatic
+     minimum is the field's min-content width (~300px), so between roughly 769px
+     and 1180px the header overflowed and shoved the theme toggle and avatar off
+     the right edge of the screen entirely. */
+  flex: 1; min-width: 0; max-width: 520px;
   height: 42px; padding: 0 12px 0 14px;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--r-pill);
@@ -232,6 +269,24 @@
 .volume { display: flex; align-items: center; gap: 6px; }
 .slider--vol { width: 92px; }
 
+/* ── Keeping the right-hand group inside its column ──────────────
+   The bar is a symmetric three-column grid, so the side tracks only reach the
+   ~307px this group needs at around 1440px wide. Below that the group used to
+   overflow its own track and paint over the transport buttons and the right end
+   of the seek bar — making the last few seconds of a track impossible to scrub
+   to on any ordinary laptop. The explicit `minmax(180px, …)` floor is what hid
+   the problem from the grid algorithm, so instead of widening the track we shed
+   the least important controls, exactly as the mobile bar already does. */
+@media (max-width: 1280px) {
+  /* The source is still named on the now-playing sheet. */
+  .playerbar__right .source-badge { display: none; }
+  .playerbar__right .slider--vol { width: clamp(52px, 5vw, 92px); }
+}
+@media (max-width: 1024px) {
+  /* Mute stays as a toggle; only the slider goes. */
+  .playerbar__right .slider--vol { display: none; }
+}
+
 /* Mini-player transport: only used on the mobile player bar */
 .playerbar__mobile-controls { display: none; }
 
@@ -286,7 +341,10 @@
   gap: clamp(14px, 2.2vh, 26px);
   width: min(100%, 620px);
   margin: 0 auto;
-  padding: max(16px, env(safe-area-inset-top)) clamp(20px, 6vw, 40px) clamp(24px, 5vh, 44px);
+  /* The bottom inset matters: without it the transport controls sit underneath
+     the home indicator on notched phones. */
+  padding: max(16px, env(safe-area-inset-top)) clamp(20px, 6vw, 40px)
+           calc(clamp(24px, 5vh, 44px) + env(safe-area-inset-bottom));
   height: 100%;
 }
 .np__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; }
@@ -335,11 +393,9 @@
    ============================================================ */
 @media (max-width: 1180px) {
   :root { --queue-w: 300px; }
+  /* Narrowing the track is enough — the rail container query handles the
+     contents. */
   .app[data-queue="open"] { grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr) var(--queue-w); }
-  .app[data-queue="open"] .brand__text,
-  .app[data-queue="open"] .nav__item span:not(.nav__dot),
-  .app[data-queue="open"] .pl-item__meta { display: none; }
-  .app[data-queue="open"] .nav__item { justify-content: center; padding-inline: 0; }
 }
 
 @media (max-width: 1024px) {
@@ -356,15 +412,8 @@
   .app[data-queue="open"],
   .app[data-sidebar="expanded"][data-queue="open"] { grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr) var(--queue-w); }
 
-  .brand__text,
-  .nav__item span:not(.nav__dot),
-  .sidebar__label span,
-  .pl-item__meta { display: none; }
-  .nav__item { justify-content: center; padding-inline: 0; }
-  .sidebar__head { justify-content: center; }
-  .sidebar__label { justify-content: center; padding-inline: 0; }
+  /* Permanently a rail here, so there is nothing to collapse or expand. */
   .sidebar__collapse { display: none; }
-  .pl-item { justify-content: center; }
 }
 
 /* ============================================================
@@ -381,6 +430,10 @@
   /* Sidebar becomes a drawer */
   .sidebar {
     position: fixed; top: 0; bottom: 0; left: 0;
+    /* Above the player bar and tab bar: as an overlay it owns the whole screen
+       while open, and its lowest rows (Settings, Shortcuts, the credit link)
+       are exactly where the bottom chrome used to cover it. */
+    z-index: var(--z-drawer);
     width: min(84vw, 320px);
     transform: translateX(-102%);
     transition: transform var(--t-slow) var(--ease);
@@ -388,6 +441,7 @@
     background: var(--glass-strong);
     padding-bottom: calc(20px + env(safe-area-inset-bottom));
   }
+  .sidebar-scrim { z-index: calc(var(--z-drawer) - 1); }
   .app[data-drawer="open"] .sidebar { transform: none; }
   .sidebar__collapse { display: none; }
 
@@ -414,6 +468,12 @@
   }
   .app[data-queue="open"] .queue-panel { transform: none; }
   .queue-panel__head { padding: 14px 12px 10px 16px; }
+  /* The sheet runs to the bottom edge so it looks seamless, which means the
+     player bar and tab bar sit on top of its last ~124px. Reserve that much
+     scrollable room or the final tracks can never be reached or removed. */
+  .queue-panel__body {
+    padding-bottom: calc(var(--player-h) + var(--tabbar-h) + env(safe-area-inset-bottom) + 16px);
+  }
 
   /* Mini player above the tab bar */
   .playerbar {
